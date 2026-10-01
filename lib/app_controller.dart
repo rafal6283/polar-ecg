@@ -69,6 +69,13 @@ class AppController extends ChangeNotifier {
   int? battery;
   final List<double> _recentRr = [];
 
+  /// Odstępy RR [ms] z opaski w miarę napływu (np. prowadzony pomiar HRV).
+  final StreamController<List<double>> _rrCtrl = StreamController.broadcast();
+  Stream<List<double>> get rrStream => _rrCtrl.stream;
+
+  @visibleForTesting
+  void injectRr(List<double> rr) => _rrCtrl.add(rr);
+
   LiveAnalyzer? live;
   Timer? _liveTimer;
 
@@ -117,6 +124,7 @@ class AppController extends ChangeNotifier {
       skinContact = m.skinContact;
       if (m.rrMs.isNotEmpty) {
         lastRr = m.rrMs.last;
+        _rrCtrl.add(m.rrMs);
         _recentRr.addAll(m.rrMs);
         while (_recentRr.length > 30) {
           _recentRr.removeAt(0);
@@ -289,6 +297,7 @@ class AppController extends ChangeNotifier {
   @override
   void dispose() {
     _teardown();
+    _rrCtrl.close();
     super.dispose();
   }
 }

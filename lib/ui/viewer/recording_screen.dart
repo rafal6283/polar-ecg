@@ -1,7 +1,6 @@
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../../analysis/analysis_result.dart';
 import '../../analysis/analyzer.dart';
@@ -13,6 +12,7 @@ import '../../report/pdf_report.dart';
 import 'dart:io';
 import 'package:share_plus/share_plus.dart';
 import '../../settings/app_settings.dart';
+import '../report_fonts.dart';
 import 'beat_sheet.dart';
 import 'clusters_screen.dart';
 import 'ecg_strip_view.dart';
@@ -140,17 +140,6 @@ class _RecordingScreenState extends State<RecordingScreen> with SingleTickerProv
     if (ok != null) await _setCorrection(best, ok);
   }
 
-  /// Roboto z assets (polskie znaki w PDF); null => czcionki systemowe.
-  static Future<(Uint8List, Uint8List)?> _reportFonts() async {
-    try {
-      final r = await rootBundle.load('assets/fonts/Roboto-Regular.ttf');
-      final b = await rootBundle.load('assets/fonts/Roboto-Bold.ttf');
-      return (r.buffer.asUint8List(r.offsetInBytes, r.lengthInBytes), b.buffer.asUint8List(b.offsetInBytes, b.lengthInBytes));
-    } catch (_) {
-      return null;
-    }
-  }
-
   Future<void> _export(String kind) async {
     final a = _analysis!;
     final messenger = ScaffoldMessenger.of(context);
@@ -168,7 +157,7 @@ class _RecordingScreenState extends State<RecordingScreen> with SingleTickerProv
             signal: _signal!,
             markers: _markers,
             person: ReportPerson(name: s.name, age: s.age, sex: s.sex),
-            fontData: await _reportFonts(),
+            fontData: await loadReportFonts(),
           );
           f = File('${dir.path}/raport_ekg_$stamp.pdf');
           await f.writeAsBytes(bytes);

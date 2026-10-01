@@ -15,6 +15,8 @@ import 'dart:convert';
 import 'package:polar_ecg/alarms/alarm_service.dart';
 import 'package:polar_ecg/app_controller.dart';
 import 'package:polar_ecg/recording/binary_format.dart';
+import 'package:polar_ecg/analysis/hrv_session.dart';
+import 'package:polar_ecg/ui/hrv_screen.dart';
 import 'package:polar_ecg/ui/legend_screen.dart';
 import 'package:polar_ecg/ui/recordings_screen.dart';
 import 'package:polar_ecg/ui/settings_screen.dart';
@@ -204,6 +206,40 @@ void main() {
       await tester.pumpWidget(_app(const RecordingsScreen(), b));
       await _settle(tester);
       await _shot(tester, '22_zapisy$suffix');
+    }, skip: skip);
+
+    testWidgets('pomiar HRV – wynik$suffix', (tester) async {
+      tester.view.physicalSize = const Size(412, 915);
+      tester.view.devicePixelRatio = 1;
+      final docs = Directory.systemTemp.createTempSync('hrvshot');
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
+          const MethodChannel('plugins.flutter.io/path_provider'), (call) async => docs.path);
+      await tester.runAsync(() async {
+        for (var d = 10; d >= 1; d--) {
+          await HrvHistory.add(docs, HrvMeasurement(
+              time: DateTime.now().subtract(Duration(days: d)), seconds: 120, beats: 130, correctedPct: 0.5,
+              hr: 58 + d % 4, rmssd: 48 + (d * 7 % 9).toDouble(), sdnn: 55, pnn50: 25));
+        }
+      });
+      final c = _fakeConnected();
+      await tester.pumpWidget(_app(HrvMeasureScreen(controller: c), b));
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 300)));
+      await _shot(tester, '30_hrv_start$suffix');
+      await tester.tap(find.text('Rozpocznij pomiar'));
+      for (var s = 0; s < 61 + 50; s++) {
+        if (s > 61) c.injectRr([s.isEven ? 960.0 : 1010.0]);
+        await tester.pump(const Duration(seconds: 1));
+      }
+      await _shot(tester, '31_hrv_pomiar$suffix');
+      for (var s = 0; s < 75; s++) {
+        c.injectRr([s.isEven ? 960.0 : 1010.0]);
+        await tester.pump(const Duration(seconds: 1));
+      }
+      for (var k = 0; k < 20 && find.text('RMSSD').evaluate().isEmpty; k++) {
+        await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 100)));
+        await tester.pump();
+      }
+      await _shot(tester, '32_hrv_wynik$suffix');
     }, skip: skip);
   }
 }

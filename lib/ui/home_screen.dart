@@ -8,6 +8,7 @@ import '../settings/app_settings.dart';
 import '../app_controller.dart';
 import '../ble/polar_h10.dart';
 import 'ecg_chart.dart';
+import 'hrv_screen.dart';
 import 'legend_screen.dart';
 import 'settings_screen.dart';
 import 'theme/app_theme.dart';
@@ -465,6 +466,17 @@ class _HeroCard extends StatelessWidget {
               const SizedBox(width: 8),
               Expanded(child: Text(rhythm, style: t.titleSmall?.copyWith(color: rColor))),
             ]),
+          ),
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              icon: const Icon(Icons.self_improvement),
+              label: const Text('Poranny pomiar HRV'),
+              style: OutlinedButton.styleFrom(minimumSize: const Size(64, 44)),
+              onPressed: () => Navigator.of(context)
+                  .push(MaterialPageRoute(builder: (_) => HrvMeasureScreen(controller: controller))),
+            ),
           ),
         ]),
       ),

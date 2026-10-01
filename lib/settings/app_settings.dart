@@ -86,6 +86,39 @@ class AppSettings extends ChangeNotifier {
     ]);
   }
 
+  /// Ustawienia do kopii zapasowej.
+  Map<String, Object?> toJson() => {
+        'name': name, 'birthYear': birthYear, 'sex': sex, 'accEnabled': accEnabled,
+        'pauseSeconds': pauseSeconds, 'bradyBpm': bradyBpm, 'tachyBpm': tachyBpm, 'afMinSeconds': afMinSeconds,
+        'usePersonal': usePersonal, 'alarmsEnabled': alarmsEnabled, 'alarmHrHigh': alarmHrHigh,
+        'alarmHrLow': alarmHrLow, 'alarmPause': alarmPause, 'alarmAf': alarmAf, 'alarmVt': alarmVt,
+        'alarmSound': alarmSound, 'alarmVibrate': alarmVibrate, 'alarmCooldownMin': alarmCooldownMin,
+      };
+
+  /// Przywrócenie ustawień z kopii (brakujące/niepoprawne pola zostają bez zmian).
+  Future<void> applyJson(Map<String, Object?> j) => update((s) {
+        T? v<T>(String k) => j[k] is T ? j[k] as T : null;
+        double? d(String k) => (j[k] is num) ? (j[k] as num).toDouble() : null;
+        s.name = v<String>('name') ?? s.name;
+        s.birthYear = j.containsKey('birthYear') ? v<int>('birthYear') : s.birthYear;
+        s.sex = v<String>('sex') ?? s.sex;
+        s.accEnabled = v<bool>('accEnabled') ?? s.accEnabled;
+        s.pauseSeconds = d('pauseSeconds') ?? s.pauseSeconds;
+        s.bradyBpm = d('bradyBpm') ?? s.bradyBpm;
+        s.tachyBpm = d('tachyBpm') ?? s.tachyBpm;
+        s.afMinSeconds = d('afMinSeconds') ?? s.afMinSeconds;
+        s.usePersonal = v<bool>('usePersonal') ?? s.usePersonal;
+        s.alarmsEnabled = v<bool>('alarmsEnabled') ?? s.alarmsEnabled;
+        s.alarmHrHigh = d('alarmHrHigh') ?? s.alarmHrHigh;
+        s.alarmHrLow = d('alarmHrLow') ?? s.alarmHrLow;
+        s.alarmPause = v<bool>('alarmPause') ?? s.alarmPause;
+        s.alarmAf = v<bool>('alarmAf') ?? s.alarmAf;
+        s.alarmVt = v<bool>('alarmVt') ?? s.alarmVt;
+        s.alarmSound = v<bool>('alarmSound') ?? s.alarmSound;
+        s.alarmVibrate = v<bool>('alarmVibrate') ?? s.alarmVibrate;
+        s.alarmCooldownMin = d('alarmCooldownMin') ?? s.alarmCooldownMin;
+      });
+
   int? get age => birthYear == null ? null : DateTime.now().year - birthYear!;
 
   /// Górna granica QTc zależna od płci (mężczyźni 450, kobiety 460 ms).

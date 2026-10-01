@@ -13,7 +13,14 @@ Użytek własny – nie jest to wyrób medyczny (licencja flutter_blue_plus: `Li
   profil osobisty (`personal_profile.dart`, k-NN z ręcznych poprawek), analiza na żywo (`live_analyzer.dart`),
   trend/epizody ST (`st_trend.dart`), blok AV II° i trzepotanie (`rhythms.dart`, AFL wyłączone), wiarygodność
   wyniku (`confidence.dart`), grupy morfologii (`beat_clusters.dart`, ekran `ui/viewer/clusters_screen.dart`).
-- `lib/report/` PDF, `lib/export/` EDF+/CSV, `lib/alarms/`, `lib/settings/`, `lib/ui/`.
+- `lib/report/` PDF (`pdf_report.dart` pojedynczy zapis, `summary_report.dart` raport zbiorczy z wielu zapisów –
+  część tej samej biblioteki), `lib/export/` EDF+/CSV, `lib/alarms/`, `lib/settings/`, `lib/ui/`.
+- Kopia zapasowa / eksport wielu zapisów: `lib/recording/backup.dart` (ZIP: `recordings/<zapis>/…` pliki źródłowe,
+  `profile.json`, `hrv_morning.json`, `settings.json`, `manifest.json`; przywracanie nie nadpisuje istniejących
+  zapisów ani profilu), akcje UI w `lib/ui/backup_actions.dart` (też raport zbiorczy).
+- Poranny pomiar HRV: `lib/analysis/hrv_session.dart` (RMSSD z RR opaski, odrzucanie artefaktów > 20% od mediany,
+  ocena ln RMSSD względem własnej normy: średnia ± max(0.5 SD, 0.05) z 30 dni, ≥ 5 pomiarów),
+  historia `<dane aplikacji>/hrv_morning.json`, ekran `lib/ui/hrv_screen.dart` (1 min wyciszenia + 2/3/5 min).
 - Wygląd: `lib/ui/theme/app_theme.dart` – motyw (granat/morski, czerwień EKG), `AppColors` (kolory semantyczne:
   N/S/V/Q, AF, ok/ostrzeżenie/alarm, papier EKG) i wspólne komponenty (`MetricTile`, `MetricGrid`, `StatusPill`,
   `SectionLabel`). Nie wpisywać kolorów na sztywno w ekranach. Nawigacja dolna: Monitor / Zapisy / Trendy / Ustawienia.

@@ -5,6 +5,7 @@ import '../alarms/alarm_service.dart';
 import '../analysis/analyzer.dart';
 import '../analysis/personal_profile.dart';
 import '../settings/app_settings.dart';
+import 'backup_actions.dart';
 import 'legend_screen.dart';
 import 'theme/app_theme.dart';
 
@@ -137,6 +138,20 @@ class SettingsScreen extends StatelessWidget {
                   ),
               ],
 
+              const _Header('Dane'),
+              ListTile(
+                leading: const Icon(Icons.cloud_upload_outlined),
+                title: const Text('Kopia zapasowa'),
+                subtitle: const Text('Wszystkie zapisy, profil osobisty, pomiary poranne i ustawienia w jednym pliku ZIP '
+                    '– zapisz na Dysku Google, wyślij e-mailem lub na komputer.'),
+                onTap: () => backupAll(context),
+              ),
+              ListTile(
+                leading: const Icon(Icons.settings_backup_restore),
+                title: const Text('Przywróć z kopii'),
+                subtitle: const Text('Dodaje brakujące zapisy (istniejących nie nadpisuje).'),
+                onTap: () => restoreBackup(context),
+              ),
               const _Header('Informacje'),
               ListTile(
                 title: const Text('Klasyfikator pobudzeń'),

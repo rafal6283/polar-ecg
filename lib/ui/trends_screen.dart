@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 
 import '../analysis/analysis_result.dart';
 import '../analysis/analyzer.dart';
+import '../analysis/hrv_session.dart';
 import '../recording/recorder.dart';
 import '../settings/app_settings.dart';
 import 'viewer/format.dart';
@@ -18,7 +19,8 @@ class _Metric {
 }
 
 const _metrics = [
-  _Metric('rmssd_ms', 'HRV poranne (RMSSD)', 'ms', morningOnly: true),
+  _Metric('hrv_guided', 'HRV – pomiar poranny', 'ms', morningOnly: true),
+  _Metric('rmssd_ms', 'HRV poranne z zapisów', 'ms', morningOnly: true),
   _Metric('hr_mean', 'Tętno średnie', '/min'),
   _Metric('hr_rest', 'Tętno w spoczynku', '/min'),
   _Metric('hr_min', 'Tętno minimalne', '/min'),
@@ -41,6 +43,7 @@ class TrendsScreen extends StatefulWidget {
 
 class _TrendsScreenState extends State<TrendsScreen> {
   List<Map<String, dynamic>> _rows = [];
+  List<HrvMeasurement> _hrv = []; // prowadzone pomiary poranne (hrv_morning.json)
   List<String> _missing = []; // zapisy bez analizy
   int _metric = 0;
   bool _loading = true;
@@ -70,9 +73,11 @@ class _TrendsScreenState extends State<TrendsScreen> {
       if (File('${d.path}/ecg.bin').existsSync() || File('${d.path}/ecg.csv').existsSync()) missing.add(d.path);
     }
     rows.sort((a, b) => (a['started'] as String).compareTo(b['started'] as String));
+    final hrv = await HrvHistory.load(root.parent);
     if (!mounted) return;
     setState(() {
       _rows = rows;
+      _hrv = hrv;
       _missing = missing;
       _loading = false;
     });
@@ -92,11 +97,13 @@ class _TrendsScreenState extends State<TrendsScreen> {
   @override
   Widget build(BuildContext context) {
     final m = _metrics[_metric];
-    final pts = [
-      for (final r in _rows)
-        if (r[m.key] != null && (!m.morningOnly || r['morning'] == true))
-          (DateTime.parse(r['started'] as String), (r[m.key] as num).toDouble())
-    ];
+    final pts = m.key == 'hrv_guided'
+        ? [for (final h in _hrv) if (h.reliable) (h.time, h.rmssd)]
+        : [
+            for (final r in _rows)
+              if (r[m.key] != null && (!m.morningOnly || r['morning'] == true))
+                (DateTime.parse(r['started'] as String), (r[m.key] as num).toDouble())
+          ];
     final t = Theme.of(context).textTheme;
     return Scaffold(
       appBar: AppBar(title: const Text('Trendy')),
@@ -121,7 +128,13 @@ class _TrendsScreenState extends State<TrendsScreen> {
                     ChoiceChip(label: Text(_metrics[i].label), selected: i == _metric, onSelected: (_) => setState(() => _metric = i)),
                 ]),
                 const SizedBox(height: 12),
-                if (m.morningOnly)
+                if (m.key == 'hrv_guided')
+                  Text(
+                    'Wyniki prowadzonego pomiaru (Monitor → Poranny pomiar HRV); tylko wiarygodne pomiary. '
+                    'Pasmo – Twoja typowa wartość (średnia ± odch. std. z 7 poprzednich pomiarów).',
+                    style: t.bodySmall,
+                  )
+                else if (m.morningOnly)
                   Text(
                     'Pomiar poranny = zapis 1–15 min rozpoczęty między 5:00 a 10:00, najlepiej na leżąco zaraz po '
                     'przebudzeniu. Pasmo – Twoja typowa wartość (średnia ± odch. std. z 7 poprzednich pomiarów); '
