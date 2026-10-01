@@ -1,4 +1,4 @@
-// Wczytywanie MIT-BIH Arrhythmia Database (format 212, adnotacje .atr) z przepróbkowaniem do 130 Hz.
+// Wczytywanie baz MIT-BIH (mitdb 360 Hz, svdb 128 Hz; format 212, adnotacje .atr) z przepróbkowaniem do 130 Hz.
 
 import 'dart:io';
 import 'dart:typed_data';
@@ -48,7 +48,8 @@ MitRecord loadMitRecord(String dir, String rec) {
   final h0 = hea.first.split(RegExp(r'\s+'));
   final fs0 = double.parse(h0[2].split('/').first);
   final ch = hea[1].split(RegExp(r'\s+'));
-  final gain = double.parse(ch[2].split('(').first.split('/').first);
+  final g0 = double.parse(ch[2].split('(').first.split('/').first);
+  final gain = g0 > 0 ? g0 : 200.0; // WFDB: wzmocnienie 0 = domyślne 200 jedn./mV (np. część svdb)
   final baseline = int.parse(ch[4]);
   if (ch[1] != '212') throw UnsupportedError('format ${ch[1]}');
 

@@ -73,8 +73,18 @@ class AlarmService {
     _seenEvents = live.events.length;
   }
 
-  /// Alarm próbny (z ustawień).
-  Future<void> test() => _fire('test_${DateTime.now().millisecondsSinceEpoch}', 'Test alarmu', 'Tak będą wyglądać alarmy z analizy EKG');
+  /// Alarm próbny (z ustawień); zwraca komunikat dla użytkownika, gdy powiadomienie nie może się pojawić.
+  Future<String?> test() async {
+    await _fire('test_${DateTime.now().millisecondsSinceEpoch}', 'Test alarmu', 'Tak będą wyglądać alarmy z analizy EKG');
+    if (!_ready) return 'Powiadomienia niedostępne na tym urządzeniu';
+    if (Platform.isAndroid) {
+      final android = _plugin.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+      if (await android?.areNotificationsEnabled() == false) {
+        return 'Powiadomienia aplikacji są wyłączone – włącz je w ustawieniach systemu (Aplikacje → Polar EKG)';
+      }
+    }
+    return null;
+  }
 
   Future<void> _fire(String kind, String title, String body) async {
     final now = DateTime.now();

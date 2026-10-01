@@ -1,7 +1,8 @@
 // Uczenie klasyfikatora pobudzeń N/S/V na MIT-BIH DS1 (podział międzypacjentowy de Chazal).
-// dart run tool/train_classifier.dart <katalog_mitdb> <plik_cache_cech.json>
+// dart run tool/train_classifier.dart <katalog_mitdb> <plik_cache_cech.json> [svdb=<katalog_svdb>]
 //
-// 1. Cechy pobudzeń z DS1 (cache).
+// 1. Cechy pobudzeń z DS1 (cache) i opcjonalnie z całej MIT-BIH Supraventricular Arrhythmia DB
+//    (svdb, 128 Hz, inni pacjenci niż mitdb – DS2 pozostaje nietknięty do oceny).
 // 2. 4-krotna walidacja krzyżowa PO PACJENTACH dla kilku konfiguracji sieci:
 //    wybór konfiguracji, liczby epok i progów decyzyjnych na predykcjach out-of-fold.
 // 3. Uczenie wybranej konfiguracji na całym DS1 -> lib/analysis/beat_model.g.dart.
@@ -44,20 +45,29 @@ const configs = [
 const maxEpochs = 40;
 
 Future<void> main(List<String> args) async {
-  final recs = _loadOrExtract(args[0], args[1]);
+  final svdbDir = [for (final a in args.skip(2)) if (a.startsWith('svdb=')) a.substring(5)].firstOrNull;
+  final ds1Recs = _loadOrExtract(args[0], ds1, args[1]);
+  final svRecs = svdbDir == null ? <Rec>[] : _loadOrExtract(svdbDir, _recordNames(svdbDir), '${args[1]}.svdb.json');
+  if (svRecs.isNotEmpty) {
+    print('SVDB: ${svRecs.length} zapisów, ${_counts([for (final r in svRecs) ...r.ys])}');
+  }
+  final recs = [...ds1Recs, ...svRecs];
   final dim = recs.first.xs.first.length;
   final allX = [for (final r in recs) ...r.xs];
   final allY = [for (final r in recs) ...r.ys];
-  print('DS1: ${allX.length} pobudzeń, ${_counts(allY)}');
+  print('uczące: ${allX.length} pobudzeń, ${_counts(allY)}');
   final (mean, std) = _standardize(allX, dim);
   final cw = _classWeights(allY);
 
-  // Foldy: zapisy posortowane wg liczby S+V, rozdzielane naprzemiennie (zrównoważone).
-  final order = [...recs]..sort((a, b) => _ectopic(b).compareTo(_ectopic(a)));
+  // Foldy: zapisy (osobno z każdej bazy) posortowane wg liczby S+V, rozdzielane naprzemiennie.
   final folds = List.generate(4, (_) => <Rec>[]);
-  for (var i = 0; i < order.length; i++) {
-    folds[i % 4].add(order[i]);
+  for (final db in [ds1Recs, svRecs]) {
+    final order = [...db]..sort((a, b) => _ectopic(b).compareTo(_ectopic(a)));
+    for (var i = 0; i < order.length; i++) {
+      folds[i % 4].add(order[i]);
+    }
   }
+  final isDs1 = [for (final r in recs) for (var i = 0; i < r.xs.length; i++) ds1Recs.contains(r)];
 
   Cfg? bestCfg;
   var best = (score: -1.0, epoch: 0, tV: 0.5, tS: 0.5);
@@ -98,8 +108,14 @@ Future<void> main(List<String> args) async {
         }
       }
     }
+    final bestOof = oof[cfgBest.epoch - 1];
     print('$cfg: najlepiej epoka ${cfgBest.epoch}, tV=${cfgBest.tV}, tS=${cfgBest.tS} -> '
-        '${_score(oof[cfgBest.epoch - 1], oofY, cfgBest.tV, cfgBest.tS).desc}');
+        '${_score(bestOof, oofY, cfgBest.tV, cfgBest.tS).desc}');
+    if (svRecs.isNotEmpty) {
+      List<Float64List?> only(bool ds) => [for (var i = 0; i < bestOof.length; i++) isDs1[i] == ds ? bestOof[i] : null];
+      print('    DS1:  ${_score(only(true), oofY, cfgBest.tV, cfgBest.tS).desc}');
+      print('    SVDB: ${_score(only(false), oofY, cfgBest.tV, cfgBest.tS).desc}');
+    }
     if (cfgBest.score > best.score) {
       best = cfgBest;
       bestCfg = cfg;
@@ -123,7 +139,8 @@ Future<void> main(List<String> args) async {
   final json = jsonEncode(finalNet.toJson());
   File('lib/analysis/beat_model.g.dart').writeAsStringSync(
     '// Wygenerowane przez tool/train_classifier.dart – nie edytować ręcznie.\n'
-    '// MIT-BIH DS1 (${allX.length} pobudzeń), konfiguracja: $bestCfg, epok: ${best.epoch}.\n'
+    '// MIT-BIH DS1${svRecs.isEmpty ? '' : ' + SVDB'} (${allX.length} pobudzeń), konfiguracja: $bestCfg, '
+    'epok: ${best.epoch}.\n'
     '// ignore_for_file: lines_longer_than_80_chars\n\n'
     "const String beatModelJson = r'''$json''';\n",
   );
@@ -132,7 +149,15 @@ Future<void> main(List<String> args) async {
 
 int _ectopic(Rec r) => r.ys.where((y) => y != 0).length;
 
-List<Rec> _loadOrExtract(String dir, String cachePath) {
+List<String> _recordNames(String dir) => Directory(dir)
+    .listSync()
+    .map((f) => f.uri.pathSegments.last)
+    .where((n) => n.endsWith('.hea'))
+    .map((n) => n.substring(0, n.length - 4))
+    .toList()
+  ..sort();
+
+List<Rec> _loadOrExtract(String dir, List<String> names, String cachePath) {
   final cache = File(cachePath);
   if (cache.existsSync()) {
     final j = jsonDecode(cache.readAsStringSync()) as List;
@@ -144,7 +169,7 @@ List<Rec> _loadOrExtract(String dir, String cachePath) {
   }
   final settings = const AnalysisSettings().copyWith({'useModel': 0, 'collectFeatures': 1});
   final recs = <Rec>[];
-  for (final name in ds1) {
+  for (final name in names) {
     final m = loadMitRecord(dir, name);
     final out = analyzeEcg(m.uv, m.timeline, settings: settings);
     final hits = matchBeats(out.result.rPeaks, m.beats);

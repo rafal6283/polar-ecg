@@ -25,8 +25,11 @@ Future<Uint8List> buildPdfReport({
   List<SymptomMarker> markers = const [],
   ReportPerson person = const ReportPerson(),
   String? deviceName,
+  (Uint8List regular, Uint8List bold)? fontData, // czcionka dołączona do aplikacji (assets/fonts)
 }) async {
-  final fonts = await _loadFonts();
+  final fonts = fontData != null
+      ? (pw.Font.ttf(ByteData.sublistView(fontData.$1)), pw.Font.ttf(ByteData.sublistView(fontData.$2)))
+      : await _loadFonts();
   String tx(String s) => fonts == null ? _ascii(s) : s;
   final doc = pw.Document(
     theme: fonts == null ? null : pw.ThemeData.withFont(base: fonts.$1, bold: fonts.$2),
@@ -353,7 +356,7 @@ pw.Widget _hrTrend(AnalysisResult a) {
   ]);
 }
 
-/// Czcionka z polskimi znakami: systemowa (Android: Roboto, Windows: Arial) – bez dołączania plików.
+/// Zapasowa czcionka z polskimi znakami: systemowa (Android: Roboto, Windows: Arial).
 Future<(pw.Font, pw.Font)?> _loadFonts() async {
   const regular = [
     '/system/fonts/Roboto-Regular.ttf',

@@ -125,8 +125,10 @@ class SettingsScreen extends StatelessWidget {
                       icon: const Icon(Icons.notifications_active_outlined),
                       label: const Text('Testuj alarm'),
                       onPressed: () async {
+                        final messenger = ScaffoldMessenger.of(context);
                         await alarms!.init();
-                        await alarms!.test();
+                        final problem = await alarms!.test();
+                        messenger.showSnackBar(SnackBar(content: Text(problem ?? 'Wysłano alarm próbny')));
                       },
                     ),
                   ),
@@ -137,8 +139,9 @@ class SettingsScreen extends StatelessWidget {
                 title: const Text('Klasyfikator pobudzeń'),
                 subtitle: Text(beatModel == null
                     ? 'reguły (model niedostępny)'
-                    : 'sieć neuronowa, uczona na ${beatModel!.meta['trainBeats']?.round()} pobudzeniach (MIT-BIH DS1); '
-                        'test na DS2: V – czułość 85%, trafność 87%; migotanie – czułość 97%, swoistość 95%'),
+                    : 'sieć neuronowa, uczona na ${beatModel!.meta['trainBeats']?.round()} pobudzeniach (MIT-BIH DS1 + SVDB); '
+                        'test na DS2: V – czułość 86%, trafność 91%; S – czułość 12%, trafność 39%; '
+                        'migotanie – czułość 97%, swoistość 95%'),
               ),
               const SizedBox(height: 24),
             ],

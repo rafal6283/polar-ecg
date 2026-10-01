@@ -55,4 +55,19 @@ void main() {
     expect(lines.length, out.result.rPeaks.length); // nagłówek + (n-1) odstępów
     tmp.deleteSync(recursive: true);
   });
+
+  test('raport PDF osadza dołączoną czcionkę Roboto (polskie znaki)', () async {
+    final s = SyntheticEcg(seed: 5)..sinus(60);
+    final x = s.render();
+    final out = analyzeEcg(x, s.timeline(x.length));
+    final pdf = await buildPdfReport(
+      a: out.result,
+      signal: out.filtered,
+      fontData: (
+        File('assets/fonts/Roboto-Regular.ttf').readAsBytesSync(),
+        File('assets/fonts/Roboto-Bold.ttf').readAsBytesSync(),
+      ),
+    );
+    expect(latin1.decode(pdf).contains('Roboto'), isTrue);
+  });
 }
