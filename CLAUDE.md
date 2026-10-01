@@ -56,7 +56,13 @@ DS2 VEB 87.0/86.2, SVEB 16.7/62.6 – odrzucona (więcej fałszywych V: N→V 37
 - Flutter stable (3.47), Android SDK 36, NDK 28.2, desugaring włączony (flutter_local_notifications).
 - `android/gradle.properties`: `kotlin.incremental=false` (projekt i pub-cache na różnych dyskach na Windows).
 - `flutter build apk --release` (uniwersalny ~57 MB) lub `--split-per-abi --target-platform android-arm64` (~20 MB,
-  mieści się w limicie 30 MB przesyłania plików do użytkownika). Podpis kluczem debug (użytek własny).
+  mieści się w limicie 30 MB przesyłania plików do użytkownika).
+- Podpis: stały klucz `android/keystore/polar-ekg.jks` (w repo prywatnym, hasło w `android/app/build.gradle.kts`)
+  – ten sam w CI i na PC, aktualizacje bez utraty danych. Od v1.3.0 (wcześniej klucz debug z PC – jednorazowa
+  reinstalacja). Nie zmieniać klucza, bo kolejne wersje nie zainstalują się jako aktualizacja.
+- GitHub Actions `.github/workflows/android.yml`: push na main/main-5zheht -> analyze, testy, APK arm64 i
+  uniwersalny -> Releases (`v<wersja>-b<100+run>`; z gałęzi innych niż main jako pre-release). Użytkownik pobiera
+  APK z GitHub Releases na telefonie.
 
 ## Następne kroki (otwarte)
 - Zapisy H10 użytkownika (najważniejsze): `dart run tool/h10_compare.dart <zapis>…` – sprawdzić zmiany v1.3.0
@@ -65,5 +71,5 @@ DS2 VEB 87.0/86.2, SVEB 16.7/62.6 – odrzucona (więcej fałszywych V: N→V 37
 - Pobudzenia S: nadal słabo (DS2 Se 12%); niemiarowość zatokowa vs S do sprawdzenia na H10.
 - Testy na telefonie użytkownika: połączenie w wersji release, akcelerometr (aktywność/pozycja),
   alarm testowy (pokazuje komunikat, gdy powiadomienia wyłączone), polskie znaki w PDF (Roboto w assets/fonts).
-- Budowanie APK w chmurze wymaga dostępu do dl.google.com (Android SDK) w ustawieniach sieci środowiska.
+- Budowanie APK w sesji chmurowej Claude wymaga dl.google.com (zablokowane) – używać GitHub Actions.
 - iOS: budowanie przez Codemagic (brak Maca), sideload.

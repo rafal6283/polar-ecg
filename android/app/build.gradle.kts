@@ -31,11 +31,20 @@ android {
         versionName = flutter.versionName
     }
 
+    // Stały klucz podpisu (android/keystore, repo prywatne, użytek własny) – ten sam w GitHub Actions
+    // i na PC, więc nowe wersje instalują się jako aktualizacja bez utraty zapisów.
+    signingConfigs {
+        create("polar") {
+            storeFile = file("../keystore/polar-ekg.jks")
+            storePassword = "polarekg"
+            keyAlias = "polar-ekg"
+            keyPassword = "polarekg"
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("polar")
         }
     }
 }
