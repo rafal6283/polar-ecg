@@ -1,6 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:polar_ecg/analysis/analysis_result.dart';
 import 'package:polar_ecg/analysis/analyzer.dart';
+import 'package:polar_ecg/analysis/beat_clusters.dart';
+import 'package:polar_ecg/analysis/confidence.dart';
 
 import 'synthetic_ecg.dart';
 
@@ -105,5 +107,42 @@ void main() {
     expect((pauses.single.endSample - pauses.single.startSample) / 130, closeTo(3.2, 0.1));
     expect(r.noisy, isNotEmpty);
     expect(r.events.where((e) => e.type != EventType.pause), isEmpty);
+  });
+
+  test('grupy morfologii: V i N w osobnych grupach, poprawki grupowe', () {
+    final s = SyntheticEcg(seed: 2)
+      ..sinus(30)
+      ..withPvcs(120);
+    final x = s.render();
+    final out = analyzeEcg(x, s.timeline(x.length));
+    final a = out.result;
+    final groups = clusterBeats(a, out.filtered);
+    expect(groups, isNotEmpty);
+    final v = groups.firstWhere((g) => g.dominantLabel == BeatType.ventricular);
+    final n = groups.firstWhere((g) => g.dominantLabel == BeatType.normal);
+    expect(v.labelCounts[BeatType.ventricular] / v.size, greaterThan(0.9));
+    expect(n.labelCounts[BeatType.ventricular], lessThan(3));
+    // „To nie są V” zmienia tylko pobudzenia V; „artefakt” – wszystkie w grupie.
+    final notV = clusterCorrections(a, v, BeatType.normal);
+    expect(notV.values.every((l) => l == BeatType.normal), isTrue);
+    expect(notV.length, v.labelCounts[BeatType.ventricular]);
+    expect(clusterCorrections(a, v, BeatType.ventricular).length, v.size - v.labelCounts[BeatType.ventricular]);
+    // ignore: avoid_print
+    print('grupy: ${groups.map((g) => '${BeatType.letters[g.dominantLabel]}${g.size}').join(' ')}');
+  });
+
+  test('wiarygodność analizy: czysty zapis wysoka, zaszumiony niższa', () {
+    final clean = SyntheticEcg()..sinus(120);
+    final xc = clean.render();
+    final c = AnalysisConfidence.of(analyzeEcg(xc, clean.timeline(xc.length)).result);
+    expect(c.level, ConfidenceLevel.high);
+    final noisy = SyntheticEcg(seed: 4)
+      ..sinus(40)
+      ..noise(40)
+      ..sinus(40);
+    final xn = noisy.render();
+    final cn = AnalysisConfidence.of(analyzeEcg(xn, noisy.timeline(xn.length)).result);
+    expect(cn.level, isNot(ConfidenceLevel.high));
+    expect(cn.reasons, isNotEmpty);
   });
 }

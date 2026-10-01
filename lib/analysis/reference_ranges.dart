@@ -121,8 +121,20 @@ const glossary = [
   ('Q – nieczytelne', 'Uderzenie w miejscu z artefaktami (ruch, słaby kontakt) – wyłączone z analizy.'),
   ('A – w migotaniu przedsionków', 'Uderzenie w epizodzie podejrzenia migotania przedsionków.'),
   ('Migotanie przedsionków (AF)', 'Chaotyczna praca przedsionków: całkowicie niemiarowe odstępy RR i brak załamków P. '
-      'Wykrywane z nieregularności RR (RMSSD, entropia, punkty zwrotne) w oknach 64 uderzeń, epizod ≥ 30 s. '
-      'Obciążenie AF = odsetek czasu zapisu w migotaniu.'),
+      'Wykrywane z nieregularności RR (RMSSD, entropia COSEn, punkty zwrotne) i braku załamka P w oknach 32 '
+      'uderzeń; epizody rozdzielone przerwą < 60 s są łączone, epizod ≥ 30 s. '
+      'Obciążenie AF = odsetek czasu zapisu w migotaniu. Trzepotanie przedsionków ze zmiennym przewodzeniem '
+      'również zostanie pokazane jako AF.'),
+  ('Częstoskurcz nadkomorowy (SVT)', 'Seria ≥ 3 pobudzeń S szybsza niż 100/min albo miarowy rytm > 100/min '
+      'z nagłym początkiem (odstęp RR krótszy o ≥ 20% od poprzednich). Częstoskurcz zatokowy narasta stopniowo.'),
+  ('Blok AV II stopnia (podejrzenie)', 'Załamek P, po którym nie ma zespołu QRS, w czasie zgodnym z rytmem '
+      'zatokowym – co najmniej 2 w ciągu minuty. Wymaga potwierdzenia w EKG 12-odprowadzeniowym.'),
+  ('Obniżenie / uniesienie ST', 'Zmiana poziomu odcinka ST (J+60 ms) o ≥ 0,1 mV względem początku zapisu, '
+      'trwająca ≥ 30 s. W odprowadzeniu z opaski ST zmienia się też z pozycją ciała – wynik orientacyjny.'),
+  ('Wiarygodność analizy', 'Ocena, na ile wynikom można ufać: odsetek zapisu bez zakłóceń, czytelnych pobudzeń, '
+      'pobudzeń z niepewną klasyfikacją i zdarzeń w zakłóconych fragmentach.'),
+  ('Grupy morfologii', 'Pobudzenia o podobnym kształcie QRS zebrane w grupy (przycisk w widoku zapisu). '
+      'Całej grupie można nadać etykietę jednym ruchem – poprawki uczą też profil osobisty.'),
   ('Pauza', 'Przerwa między uderzeniami dłuższa niż 2 s (próg w ustawieniach); > 3 s – istotna.'),
   ('Para / salwa / nsVT', 'Dwa (para) lub ≥ 3 (salwa) kolejne pobudzenia komorowe; salwa szybsza niż 100/min '
       'to nieutrwalony częstoskurcz komorowy (nsVT).'),

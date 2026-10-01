@@ -140,8 +140,8 @@ class SettingsScreen extends StatelessWidget {
                 subtitle: Text(beatModel == null
                     ? 'reguły (model niedostępny)'
                     : 'sieć neuronowa, uczona na ${beatModel!.meta['trainBeats']?.round()} pobudzeniach (MIT-BIH DS1 + SVDB); '
-                        'test na DS2: V – czułość 86%, trafność 91%; S – czułość 12%, trafność 39%; '
-                        'migotanie – czułość 97%, swoistość 95%'),
+                        'test na DS2: V – czułość 86%, trafność 91%; S – czułość 12%, trafność 59%; '
+                        'migotanie (2000 h zapisów dobowych) – czułość 92%, swoistość 93%'),
               ),
               const SizedBox(height: 24),
             ],

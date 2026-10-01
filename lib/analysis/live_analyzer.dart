@@ -55,6 +55,9 @@ class LiveAnalyzer {
 
   LiveAnalyzer(this.fs, {this.settings = const AnalysisSettings(), this.profile});
 
+  /// W oknie 90 s nie ma stabilnego odniesienia dla ST – zmiany ST tylko w analizie całego zapisu.
+  late final AnalysisSettings _windowSettings = settings.copyWith({'stDevUv': 0});
+
   /// Poziom aktywności słownie.
   String? get activityLabel {
     final a = activityMg;
@@ -171,7 +174,7 @@ class LiveAnalyzer {
             for (var w = 0; w * win < len; w++) _actByWin[((start + w * win) ~/ win) % _actByWin.length],
           ]);
     final res = analyzeEcg(window, Timeline(started, fs, [Segment(0, len, 0)]),
-            settings: settings, profile: profile, activity: act)
+            settings: _windowSettings, profile: profile, activity: act)
         .result;
     final r = res.rPeaks;
 

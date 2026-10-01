@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 
 import '../../analysis/analysis_result.dart';
 import '../../analysis/analyzer.dart';
+import '../../analysis/confidence.dart';
 import '../../analysis/ecg_recording.dart';
 import '../../export/exporters.dart';
 import '../../recording/markers.dart';
@@ -13,6 +14,7 @@ import 'dart:io';
 import 'package:share_plus/share_plus.dart';
 import '../../settings/app_settings.dart';
 import 'beat_sheet.dart';
+import 'clusters_screen.dart';
 import 'ecg_strip_view.dart';
 import 'format.dart';
 import 'tachogram.dart';
@@ -103,6 +105,17 @@ class _RecordingScreenState extends State<RecordingScreen> with SingleTickerProv
     // Poprawka zgodna z wynikiem analizy niczego nie zmienia – usuwamy ją.
     final same = choice == a.labels[k] && !a.corrected.containsKey(sample);
     await _setCorrection(sample, choice < 0 || same ? null : choice);
+  }
+
+  /// Przegląd grup morfologii; zatwierdzone zmiany grup dopisujemy do poprawek i przeliczamy zapis.
+  Future<void> _openClusters() async {
+    final changes = await Navigator.of(context).push<Map<int, int>>(
+      MaterialPageRoute(builder: (_) => ClustersScreen(analysis: _analysis!, signal: _signal!)),
+    );
+    if (changes == null || changes.isEmpty) return;
+    _corrections = {..._corrections, ...changes};
+    await saveCorrections(widget.path, _corrections);
+    await _load(force: true);
   }
 
   Future<void> _onLongPress(int sample) async {
@@ -200,6 +213,11 @@ class _RecordingScreenState extends State<RecordingScreen> with SingleTickerProv
       appBar: AppBar(
         title: Text(widget.title),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.category_outlined),
+            tooltip: 'Grupy morfologii',
+            onPressed: a == null || _busy ? null : _openClusters,
+          ),
           IconButton(
             icon: const Icon(Icons.help_outline),
             tooltip: 'Legenda',
@@ -411,6 +429,7 @@ class _EventsTab extends StatelessWidget {
       );
     }
     final scheme = Theme.of(context).colorScheme;
+    final unsure = AnalysisConfidence.of(analysis).uncertainEvents;
     return ListView(
       children: [
         if (markers.isNotEmpty) ...[
@@ -427,7 +446,7 @@ class _EventsTab extends StatelessWidget {
           const Divider(),
         ],
         if (ev.isNotEmpty) const Padding(padding: EdgeInsets.fromLTRB(16, 8, 16, 4), child: Text('Wykryte zdarzenia')),
-        for (final e in ev)
+        for (final (k, e) in ev.indexed)
           ListTile(
             leading: Icon(Icons.circle,
                 color: switch (e.severity) {
@@ -437,8 +456,14 @@ class _EventsTab extends StatelessWidget {
                 },
                 size: 14),
             title: Text(e.type.label),
-            subtitle: Text([fmtClock(analysis.timeline.timeOf(e.startSample)), if (e.detail.isNotEmpty) e.detail].join(' · ')),
-            trailing: const Icon(Icons.chevron_right),
+            subtitle: Text([
+              fmtClock(analysis.timeline.timeOf(e.startSample)),
+              if (e.detail.isNotEmpty) e.detail,
+              if (unsure.contains(k)) 'niepewne – zakłócenia w pobliżu',
+            ].join(' · ')),
+            trailing: unsure.contains(k)
+                ? const Icon(Icons.help_outline, color: Color(0xFFF57C00))
+                : const Icon(Icons.chevron_right),
             onTap: () => onSelect(e),
           ),
       ],
@@ -490,7 +515,9 @@ class _ReportTab extends StatelessWidget {
         Text('${fmtDate(tl.started)}, ${fmtClock(tl.started)}', style: t.titleMedium),
         Text('Czas zapisu ${fmtDuration(Duration(seconds: (s['duration_s'] ?? 0).round()))}, '
             'analizowane ${fmtDuration(Duration(seconds: (s['analyzed_s'] ?? 0).round()))}'),
-        const SizedBox(height: 16),
+        const SizedBox(height: 12),
+        _ConfidenceCard(conf: AnalysisConfidence.of(analysis)),
+        const SizedBox(height: 4),
         Text('Parametry przebiegu', style: t.titleSmall),
         const SizedBox(height: 6),
         WaveformCard(analysis: analysis),
@@ -528,6 +555,46 @@ class _ReportTab extends StatelessWidget {
           style: t.bodySmall,
         ),
       ],
+    );
+  }
+}
+
+/// Wiarygodność analizy: ocena, czytelność zapisu, niepewne klasyfikacje i powody obniżenia oceny.
+class _ConfidenceCard extends StatelessWidget {
+  final AnalysisConfidence conf;
+
+  const _ConfidenceCard({required this.conf});
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context).textTheme;
+    final color = switch (conf.level) {
+      ConfidenceLevel.high => const Color(0xFF2E7D32),
+      ConfidenceLevel.medium => const Color(0xFFF57C00),
+      ConfidenceLevel.low => const Color(0xFFD32F2F),
+    };
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(children: [
+              Icon(Icons.verified_outlined, color: color, size: 20),
+              const SizedBox(width: 8),
+              Text('Wiarygodność analizy: ', style: t.titleSmall),
+              Text(conf.level.label, style: t.titleSmall?.copyWith(color: color)),
+            ]),
+            const SizedBox(height: 6),
+            Text('Zapis bez zakłóceń ${conf.readablePct.round()}% · czytelne pobudzenia ${conf.beatsReadablePct.round()}%'),
+            if (conf.uncertainV + conf.uncertainS > 0)
+              Text('Niepewna klasyfikacja: V ${conf.uncertainV}, S ${conf.uncertainS} '
+                  '(do sprawdzenia w przeglądzie grup lub strzałkami w Przebiegu)'),
+            for (final r in conf.reasons) Text('• $r', style: t.bodySmall),
+          ],
+        ),
+      ),
     );
   }
 }

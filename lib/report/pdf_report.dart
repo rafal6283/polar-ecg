@@ -6,6 +6,7 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 
 import '../analysis/analysis_result.dart';
+import '../analysis/confidence.dart';
 import '../analysis/reference_ranges.dart';
 import '../recording/markers.dart';
 
@@ -96,6 +97,10 @@ Future<Uint8List> buildPdfReport({
       ].join(', '))),
       pw.Text(tx('Zapis: ${date(tl.started)}, ${clock(tl.started)} · czas ${dur(s['duration_s'])} '
           '(analizowane ${dur(s['analyzed_s'])})${deviceName == null ? '' : ' · $deviceName'}')),
+      pw.Text(tx(() {
+        final c = AnalysisConfidence.of(a);
+        return 'Wiarygodność analizy: ${c.level.label}${c.reasons.isEmpty ? '' : ' (${c.reasons.join('; ')})'}';
+      }()), style: const pw.TextStyle(fontSize: 9)),
       pw.Text(tx('Jedno odprowadzenie piersiowe, 130 Hz. Wydruk EKG: 25 mm/s, 10 mm/mV.'), style: small),
 
       section('Podsumowanie'),

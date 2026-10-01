@@ -26,7 +26,11 @@ enum EventType {
   svt('Częstoskurcz nadkomorowy', Severity.medium),
   svRun('Salwa pobudzeń nadkomorowych', Severity.low),
   brady('Bradykardia', Severity.medium),
-  tachy('Tachykardia', Severity.low);
+  tachy('Tachykardia', Severity.low),
+  afl('Trzepotanie przedsionków (podejrzenie)', Severity.high),
+  avBlock2('Blok AV II stopnia (podejrzenie)', Severity.medium),
+  stDepression('Obniżenie odcinka ST', Severity.medium),
+  stElevation('Uniesienie odcinka ST', Severity.medium);
 
   final String label;
   final Severity defaultSeverity;
@@ -70,7 +74,7 @@ class AnalysisStats {
 }
 
 class AnalysisResult {
-  static const version = 3;
+  static const version = 4; // 4: v1.3.0 – nowe zdarzenia (SVT, blok AV, ST), progi AF, odzysk uderzeń
 
   final Timeline timeline;
   final Int32List rPeaks;
