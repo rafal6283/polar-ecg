@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import '../../analysis/analysis_result.dart';
 import 'ecg_strip_view.dart';
 import 'viewport.dart';
+import '../theme/app_theme.dart';
 
 /// Odstępy RR całego zapisu w funkcji czasu. Stuknięcie/przeciągnięcie przenosi widok EKG.
 class Tachogram extends StatelessWidget {
@@ -56,7 +57,7 @@ class _TachoPainter extends CustomPainter {
     for (final e in a.events) {
       if (e.type != EventType.af) continue;
       canvas.drawRect(Rect.fromLTRB(xOf(e.startSample), 0, max(xOf(e.endSample), xOf(e.startSample) + 1), h),
-          Paint()..color = Colors.orange.withValues(alpha: 0.25));
+          Paint()..color = AppColors.light.af.withValues(alpha: 0.22));
     }
     for (final n in a.noisy) {
       canvas.drawRect(Rect.fromLTRB(xOf(n[0]), 0, max(xOf(n[1]), xOf(n[0]) + 1), h),

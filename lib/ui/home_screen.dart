@@ -10,15 +10,68 @@ import '../ble/polar_h10.dart';
 import 'ecg_chart.dart';
 import 'legend_screen.dart';
 import 'settings_screen.dart';
+import 'theme/app_theme.dart';
 import 'trends_screen.dart';
 import 'recordings_screen.dart';
 import '../recording/markers.dart';
 import 'viewer/format.dart';
 
-class HomeScreen extends StatelessWidget {
+/// Ekran główny: dolna nawigacja – Monitor (na żywo), Zapisy, Trendy, Ustawienia.
+class HomeScreen extends StatefulWidget {
   final AppController controller;
 
   const HomeScreen({super.key, required this.controller});
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  int _tab = 0;
+  int _visit = 0; // nowy klucz przy każdym wejściu – listy zapisów/trendów odświeżają się
+
+  @override
+  Widget build(BuildContext context) {
+    final c = widget.controller;
+    return Scaffold(
+      body: switch (_tab) {
+        1 => RecordingsScreen(key: ValueKey('rec$_visit')),
+        2 => TrendsScreen(key: ValueKey('tr$_visit')),
+        3 => SettingsScreen(settings: c.settings, alarms: c.alarms),
+        _ => MonitorPage(controller: c),
+      },
+      bottomNavigationBar: ListenableBuilder(
+        listenable: c,
+        builder: (context, _) => NavigationBar(
+          selectedIndex: _tab,
+          onDestinationSelected: (i) => setState(() {
+            _tab = i;
+            _visit++;
+          }),
+          destinations: [
+            NavigationDestination(
+              icon: Badge(isLabelVisible: c.isRecording, child: const Icon(Icons.monitor_heart_outlined)),
+              selectedIcon: Badge(isLabelVisible: c.isRecording, child: const Icon(Icons.monitor_heart)),
+              label: 'Monitor',
+            ),
+            const NavigationDestination(
+                icon: Icon(Icons.folder_outlined), selectedIcon: Icon(Icons.folder), label: 'Zapisy'),
+            const NavigationDestination(
+                icon: Icon(Icons.insights_outlined), selectedIcon: Icon(Icons.insights), label: 'Trendy'),
+            const NavigationDestination(
+                icon: Icon(Icons.tune_outlined), selectedIcon: Icon(Icons.tune), label: 'Ustawienia'),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Monitor: wyszukiwanie opaski albo podgląd na żywo.
+class MonitorPage extends StatelessWidget {
+  final AppController controller;
+
+  const MonitorPage({super.key, required this.controller});
 
   @override
   Widget build(BuildContext context) {
@@ -28,31 +81,12 @@ class HomeScreen extends StatelessWidget {
         final connected = controller.device != null && controller.link != LinkState.connecting;
         return Scaffold(
           appBar: AppBar(
-            title: const Text('Polar EKG'),
+            title: const _AppTitle(),
             actions: [
-              IconButton(
-                icon: const Icon(Icons.show_chart),
-                tooltip: 'Trendy',
-                onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const TrendsScreen())),
-              ),
-              IconButton(
-                icon: const Icon(Icons.settings_outlined),
-                tooltip: 'Ustawienia',
-                onPressed: () => Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => SettingsScreen(settings: controller.settings, alarms: controller.alarms)),
-                ),
-              ),
               IconButton(
                 icon: const Icon(Icons.help_outline),
                 tooltip: 'Legenda',
                 onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const LegendScreen())),
-              ),
-              IconButton(
-                icon: const Icon(Icons.folder_open),
-                tooltip: 'Zapisy',
-                onPressed: () => Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const RecordingsScreen()),
-                ),
               ),
               if (connected)
                 IconButton(
@@ -69,6 +103,26 @@ class HomeScreen extends StatelessWidget {
   }
 }
 
+/// Logo (serce z falą EKG) + nazwa.
+class _AppTitle extends StatelessWidget {
+  const _AppTitle();
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = AppColors.of(context).ecgAccent;
+    return Row(mainAxisSize: MainAxisSize.min, children: [
+      Container(
+        width: 30,
+        height: 30,
+        decoration: BoxDecoration(color: accent, borderRadius: BorderRadius.circular(9)),
+        child: const Icon(Icons.monitor_heart, color: Colors.white, size: 19),
+      ),
+      const SizedBox(width: 10),
+      const Text('Polar EKG'),
+    ]);
+  }
+}
+
 class _ScanView extends StatelessWidget {
   final AppController controller;
 
@@ -76,72 +130,101 @@ class _ScanView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = Theme.of(context).textTheme;
+    final scheme = Theme.of(context).colorScheme;
     if (controller.link == LinkState.connecting) {
-      return const Center(
+      return Center(
         child: Column(mainAxisSize: MainAxisSize.min, children: [
-          CircularProgressIndicator(),
-          SizedBox(height: 16),
-          Text('Łączenie z opaską…'),
+          const SizedBox.square(dimension: 48, child: CircularProgressIndicator(strokeWidth: 3)),
+          const SizedBox(height: 20),
+          Text('Łączenie z opaską…', style: t.titleMedium),
+          const SizedBox(height: 4),
+          Text('Uruchamiam EKG 130 Hz, tętno i akcelerometr', style: t.bodySmall),
         ]),
       );
     }
-    return Column(
-      children: [
-        if (controller.error != null)
-          Container(
-            width: double.infinity,
-            color: Theme.of(context).colorScheme.errorContainer,
-            padding: const EdgeInsets.all(12),
-            child: Text(controller.error!),
-          ),
-        Padding(
-          padding: const EdgeInsets.all(16),
-          child: StreamBuilder<bool>(
-            stream: PolarH10.isScanning,
-            initialData: false,
-            builder: (context, snap) {
-              final scanning = snap.data ?? false;
-              return FilledButton.icon(
-                icon: scanning
-                    ? const SizedBox.square(dimension: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                    : const Icon(Icons.bluetooth_searching),
-                label: Text(scanning ? 'Szukam…' : 'Szukaj opaski'),
-                onPressed: scanning ? PolarH10.stopScan : _scan(context),
-              );
-            },
-          ),
-        ),
-        const Padding(
-          padding: EdgeInsets.symmetric(horizontal: 16),
-          child: Text(
-            'Załóż i zwilż opaskę – H10 włącza się dopiero po kontakcie ze skórą.',
-            textAlign: TextAlign.center,
-          ),
-        ),
-        Expanded(
-          child: StreamBuilder<List<ScanResult>>(
-            stream: PolarH10.scanResults,
-            initialData: const [],
-            builder: (context, snap) {
-              final results = snap.data ?? const [];
-              return ListView(
-                children: [
-                  for (final r in results)
-                    ListTile(
-                      leading: const Icon(Icons.monitor_heart),
-                      title: Text(r.device.advName.isNotEmpty ? r.device.advName : r.device.remoteId.str),
-                      subtitle: Text('Sygnał: ${r.rssi} dBm'),
+    return StreamBuilder<List<ScanResult>>(
+      stream: PolarH10.scanResults,
+      initialData: const [],
+      builder: (context, snap) {
+        final results = snap.data ?? const [];
+        return ListView(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+          children: [
+            if (controller.error != null)
+              Card(
+                color: scheme.errorContainer,
+                child: ListTile(
+                  leading: Icon(Icons.error_outline, color: scheme.onErrorContainer),
+                  title: Text(controller.error!, style: TextStyle(color: scheme.onErrorContainer)),
+                ),
+              ),
+            const SizedBox(height: 16),
+            Center(
+              child: Container(
+                width: 112,
+                height: 112,
+                decoration: BoxDecoration(color: scheme.primaryContainer, shape: BoxShape.circle),
+                child: Icon(Icons.monitor_heart_outlined, size: 56, color: scheme.onPrimaryContainer),
+              ),
+            ),
+            const SizedBox(height: 20),
+            Text('Połącz opaskę Polar H10', textAlign: TextAlign.center, style: t.headlineSmall),
+            const SizedBox(height: 6),
+            Text('Zapis EKG, analiza rytmu na żywo i alarmy', textAlign: TextAlign.center, style: t.bodyMedium),
+            const SizedBox(height: 20),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 6),
+                child: Column(children: const [
+                  _Step(1, 'Zwilż elektrody', 'Woda lub żel – lepszy sygnał od pierwszej minuty.'),
+                  _Step(2, 'Załóż opaskę', 'Pod mostkiem, logo na środku; H10 włącza się po kontakcie ze skórą.'),
+                  _Step(3, 'Wyszukaj i połącz', 'Bluetooth musi być włączony.'),
+                ]),
+              ),
+            ),
+            const SizedBox(height: 16),
+            StreamBuilder<bool>(
+              stream: PolarH10.isScanning,
+              initialData: false,
+              builder: (context, snap) {
+                final scanning = snap.data ?? false;
+                return FilledButton.icon(
+                  icon: scanning
+                      ? const SizedBox.square(dimension: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.bluetooth_searching),
+                  label: Text(scanning ? 'Szukam… (dotknij, aby przerwać)' : 'Szukaj opaski'),
+                  onPressed: scanning ? PolarH10.stopScan : _scan(context),
+                );
+              },
+            ),
+            if (results.isNotEmpty) ...[
+              const SectionLabel('Znalezione urządzenia'),
+              for (final r in results)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Card(
+                    child: ListTile(
+                      leading: CircleAvatar(
+                        backgroundColor: scheme.primaryContainer,
+                        child: Icon(Icons.favorite, color: AppColors.of(context).ecgAccent),
+                      ),
+                      title: Text(r.device.advName.isNotEmpty ? r.device.advName : r.device.remoteId.str,
+                          style: t.titleSmall),
+                      subtitle: Text('Sygnał ${_signal(r.rssi)} · ${r.rssi} dBm'),
                       trailing: const Icon(Icons.chevron_right),
                       onTap: () => controller.connect(r.device),
                     ),
-                ],
-              );
-            },
-          ),
-        ),
-      ],
+                  ),
+                ),
+            ],
+          ],
+        );
+      },
     );
   }
+
+  static String _signal(int rssi) => rssi > -65 ? 'bardzo dobry' : (rssi > -80 ? 'dobry' : 'słaby');
 
   VoidCallback _scan(BuildContext context) => () async {
         try {
@@ -157,6 +240,26 @@ class _ScanView extends StatelessWidget {
       };
 }
 
+class _Step extends StatelessWidget {
+  final int n;
+  final String title, body;
+  const _Step(this.n, this.title, this.body);
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return ListTile(
+      leading: CircleAvatar(
+        radius: 14,
+        backgroundColor: scheme.secondaryContainer,
+        child: Text('$n', style: TextStyle(color: scheme.onSecondaryContainer, fontWeight: FontWeight.w700)),
+      ),
+      title: Text(title, style: Theme.of(context).textTheme.titleSmall),
+      subtitle: Text(body),
+    );
+  }
+}
+
 class _LiveView extends StatelessWidget {
   final AppController controller;
 
@@ -166,89 +269,60 @@ class _LiveView extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = controller;
     final rec = c.recorder;
+    final colors = AppColors.of(context);
+    final h = MediaQuery.sizeOf(context).height;
+    final showAlarm = c.alarms.lastAlarm != null && DateTime.now().difference(c.alarms.lastAlarmTime!).inMinutes < 5;
     return Column(
       children: [
         if (c.link == LinkState.reconnecting)
-          Container(
-            width: double.infinity,
-            color: Colors.orange.shade700,
-            padding: const EdgeInsets.all(8),
-            child: const Text('Utracono połączenie – ponawiam…', style: TextStyle(color: Colors.white)),
-          ),
+          _Banner(icon: Icons.sync, text: 'Utracono połączenie – ponawiam…', color: colors.warning),
         if (c.skinContact == false)
-          Container(
-            width: double.infinity,
-            color: Colors.red.shade700,
-            padding: const EdgeInsets.all(8),
-            child: const Text('Brak kontaktu elektrod ze skórą', style: TextStyle(color: Colors.white)),
-          ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              _Stat(label: 'Tętno', value: c.heartRate?.toString() ?? '–', unit: 'bpm', big: true),
-              _Stat(label: 'RR', value: c.lastRr?.round().toString() ?? '–', unit: 'ms'),
-              _Stat(label: 'RMSSD', value: c.rmssd?.round().toString() ?? '–', unit: 'ms'),
-              _Stat(label: 'Bateria', value: c.battery?.toString() ?? '–', unit: '%'),
-            ],
-          ),
-        ),
+          _Banner(icon: Icons.touch_app_outlined, text: 'Brak kontaktu elektrod ze skórą – zwilż i popraw opaskę', color: colors.danger),
         Expanded(
-          flex: 5,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(8),
-              child: EcgChart(buffer: c.ecg),
-            ),
-          ),
-        ),
-        if (c.alarms.lastAlarm != null && DateTime.now().difference(c.alarms.lastAlarmTime!).inMinutes < 5)
-          Container(
-            width: double.infinity,
-            margin: const EdgeInsets.fromLTRB(8, 6, 8, 0),
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(color: const Color(0xFFD32F2F), borderRadius: BorderRadius.circular(8)),
-            child: Row(children: [
-              const Icon(Icons.notifications_active, color: Colors.white, size: 18),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text('${fmtClock(c.alarms.lastAlarmTime!)}  ${c.alarms.lastAlarm}',
-                    style: const TextStyle(color: Colors.white)),
-              ),
-            ]),
-          ),
-        Expanded(flex: 6, child: _LivePanel(live: c.live, recording: rec != null)),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
-          child: Row(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
             children: [
-              if (rec != null) ...[
-                OutlinedButton.icon(
-                  icon: const Icon(Icons.flag, color: Color(0xFF7B1FA2)),
-                  label: const Text('Objaw'),
-                  onPressed: () => _markSymptom(context, c),
-                ),
-                const SizedBox(width: 8),
-              ],
-              Expanded(
-                child: rec == null
-                    ? FilledButton.icon(
-                        icon: const Icon(Icons.fiber_manual_record),
-                        label: const Text('Nagrywaj'),
-                        style: FilledButton.styleFrom(backgroundColor: Colors.red.shade700),
-                        onPressed: c.startRecording,
-                      )
-                    : FilledButton.icon(
-                        icon: const Icon(Icons.stop),
-                        label: Text('Zatrzymaj  ${_fmt(rec.elapsed)}'),
-                        onPressed: c.stopRecording,
+              _HeroCard(controller: c),
+              const SizedBox(height: 10),
+              Card(
+                child: SizedBox(
+                  height: (h * 0.26).clamp(170.0, 280.0),
+                  child: Stack(children: [
+                    Positioned.fill(child: EcgChart(buffer: c.ecg)),
+                    Positioned(
+                      right: 8,
+                      top: 8,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                            color: colors.paper.withValues(alpha: 0.85), borderRadius: BorderRadius.circular(8)),
+                        child: Row(mainAxisSize: MainAxisSize.min, children: [
+                          Icon(Icons.circle, size: 8, color: colors.ecgAccent),
+                          const SizedBox(width: 5),
+                          Text('NA ŻYWO',
+                              style: Theme.of(context).textTheme.labelSmall?.copyWith(color: colors.trace, letterSpacing: 1)),
+                        ]),
                       ),
+                    ),
+                  ]),
+                ),
               ),
+              if (showAlarm) ...[
+                const SizedBox(height: 10),
+                Card(
+                  color: colors.danger,
+                  child: ListTile(
+                    leading: const Icon(Icons.notifications_active, color: Colors.white),
+                    title: Text(c.alarms.lastAlarm!, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+                    subtitle: Text(fmtClock(c.alarms.lastAlarmTime!), style: const TextStyle(color: Colors.white70)),
+                  ),
+                ),
+              ],
+              _LivePanel(live: c.live, recording: rec != null),
             ],
           ),
         ),
+        _RecordBar(controller: c, onSymptom: () => _markSymptom(context, c)),
       ],
     );
   }
@@ -266,13 +340,19 @@ class _LiveView extends StatelessWidget {
           padding: EdgeInsets.fromLTRB(16, 0, 16, MediaQuery.of(ctx).viewInsets.bottom + 16),
           child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text('Co odczuwasz?', style: Theme.of(ctx).textTheme.titleLarge),
-            const SizedBox(height: 8),
+            const SizedBox(height: 4),
+            Text('Znacznik trafi do zapisu i raportu PDF z opisem rytmu w tej chwili.',
+                style: Theme.of(ctx).textTheme.bodySmall),
+            const SizedBox(height: 12),
             Wrap(spacing: 8, runSpacing: 8, children: [
               for (final s in symptoms)
                 ChoiceChip(label: Text(s), selected: chosen == s, onSelected: (_) => setSt(() => chosen = s)),
             ]),
-            const SizedBox(height: 8),
-            TextField(controller: noteCtrl, decoration: const InputDecoration(labelText: 'Notatka (opcjonalnie)')),
+            const SizedBox(height: 12),
+            TextField(
+              controller: noteCtrl,
+              decoration: const InputDecoration(labelText: 'Notatka (opcjonalnie)', border: OutlineInputBorder()),
+            ),
             const SizedBox(height: 12),
             SizedBox(
               width: double.infinity,
@@ -292,14 +372,184 @@ class _LiveView extends StatelessWidget {
       }
     }
   }
+}
 
-  static String _fmt(Duration d) {
-    String two(int v) => v.toString().padLeft(2, '0');
-    return '${two(d.inHours)}:${two(d.inMinutes % 60)}:${two(d.inSeconds % 60)}';
+String _fmtElapsed(Duration d) {
+  String two(int v) => v.toString().padLeft(2, '0');
+  return '${two(d.inHours)}:${two(d.inMinutes % 60)}:${two(d.inSeconds % 60)}';
+}
+
+class _Banner extends StatelessWidget {
+  final IconData icon;
+  final String text;
+  final Color color;
+  const _Banner({required this.icon, required this.text, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      color: color,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      child: Row(children: [
+        Icon(icon, color: Colors.white, size: 18),
+        const SizedBox(width: 8),
+        Expanded(child: Text(text, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600))),
+      ]),
+    );
   }
 }
 
-/// Wyniki analizy na żywo: rytm, statystyki sesji, ostatnie zdarzenia.
+/// Główna karta: duże tętno, RR/RMSSD, stan rytmu i plakietki urządzenia.
+class _HeroCard extends StatelessWidget {
+  final AppController controller;
+  const _HeroCard({required this.controller});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = controller;
+    final l = c.live;
+    final t = Theme.of(context).textTheme;
+    final scheme = Theme.of(context).colorScheme;
+    final colors = AppColors.of(context);
+    final (rhythm, rColor, rIcon) = l == null || l.beats == 0
+        ? ('Analiza rytmu za ok. 15 s…', scheme.onSurfaceVariant, Icons.hourglass_empty)
+        : l.qualityPct < 60
+            ? ('Słaby sygnał – popraw opaskę', colors.warning, Icons.signal_cellular_alt_1_bar)
+            : l.afNow
+                ? ('Rytm niemiarowy – podejrzenie AF', colors.danger, Icons.warning_amber_rounded)
+                : ('Rytm miarowy', colors.ok, Icons.check_circle);
+    final bat = c.battery;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Wrap(spacing: 6, runSpacing: 6, children: [
+            StatusPill(
+                icon: Icons.bluetooth_connected,
+                text: (c.device?.name ?? '').isEmpty ? 'Polar H10' : c.device!.name,
+                color: scheme.primary),
+            if (bat != null)
+              StatusPill(
+                icon: bat > 50 ? Icons.battery_full : (bat > 20 ? Icons.battery_4_bar : Icons.battery_alert),
+                text: '$bat%',
+                color: bat > 20 ? colors.ok : colors.danger,
+              ),
+            if (l != null && l.beats > 0)
+              StatusPill(
+                icon: Icons.graphic_eq,
+                text: 'sygnał ${l.qualityPct.round()}%',
+                color: l.qualityPct >= 80 ? colors.ok : (l.qualityPct >= 60 ? colors.warning : colors.danger),
+              ),
+          ]),
+          const SizedBox(height: 12),
+          Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+            Icon(Icons.favorite, color: colors.ecgAccent, size: 34),
+            const SizedBox(width: 8),
+            Text(c.heartRate?.toString() ?? '––', style: t.displayMedium?.copyWith(fontWeight: FontWeight.w700, height: 1)),
+            const SizedBox(width: 6),
+            Padding(padding: const EdgeInsets.only(bottom: 6), child: Text('/min', style: t.titleSmall)),
+            const Spacer(),
+            Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+              _MiniStat('RR', c.lastRr?.round().toString() ?? '–', 'ms'),
+              const SizedBox(height: 4),
+              _MiniStat('RMSSD', c.rmssd?.round().toString() ?? '–', 'ms'),
+            ]),
+          ]),
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(color: rColor.withValues(alpha: 0.10), borderRadius: BorderRadius.circular(12)),
+            child: Row(children: [
+              Icon(rIcon, color: rColor, size: 20),
+              const SizedBox(width: 8),
+              Expanded(child: Text(rhythm, style: t.titleSmall?.copyWith(color: rColor))),
+            ]),
+          ),
+        ]),
+      ),
+    );
+  }
+}
+
+class _MiniStat extends StatelessWidget {
+  final String label, value, unit;
+  const _MiniStat(this.label, this.value, this.unit);
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context).textTheme;
+    return Row(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.baseline, textBaseline: TextBaseline.alphabetic, children: [
+      Text(label, style: t.labelSmall),
+      const SizedBox(width: 6),
+      Text(value, style: t.titleMedium),
+      const SizedBox(width: 2),
+      Text(unit, style: t.labelSmall),
+    ]);
+  }
+}
+
+/// Pasek nagrywania przyklejony do dołu.
+class _RecordBar extends StatelessWidget {
+  final AppController controller;
+  final VoidCallback onSymptom;
+  const _RecordBar({required this.controller, required this.onSymptom});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = controller;
+    final rec = c.recorder;
+    final colors = AppColors.of(context);
+    final scheme = Theme.of(context).colorScheme;
+    return Material(
+      color: Theme.of(context).cardTheme.color,
+      elevation: 3,
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+          child: rec == null
+              ? SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    icon: const Icon(Icons.fiber_manual_record),
+                    label: const Text('Rozpocznij nagrywanie'),
+                    style: FilledButton.styleFrom(backgroundColor: colors.ecgAccent, foregroundColor: Colors.white),
+                    onPressed: c.startRecording,
+                  ),
+                )
+              : Row(children: [
+                  Container(
+                    width: 10,
+                    height: 10,
+                    decoration: BoxDecoration(color: colors.ecgAccent, shape: BoxShape.circle),
+                  ),
+                  const SizedBox(width: 8),
+                  Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+                    Text('NAGRYWANIE', style: Theme.of(context).textTheme.labelSmall?.copyWith(color: colors.ecgAccent, letterSpacing: 1)),
+                    Text(_fmtElapsed(rec.elapsed), style: Theme.of(context).textTheme.titleMedium),
+                  ]),
+                  const Spacer(),
+                  OutlinedButton.icon(
+                    icon: Icon(Icons.flag, color: colors.symptom),
+                    label: const Text('Objaw'),
+                    onPressed: onSymptom,
+                  ),
+                  const SizedBox(width: 8),
+                  FilledButton.icon(
+                    icon: const Icon(Icons.stop),
+                    label: const Text('Stop'),
+                    style: FilledButton.styleFrom(backgroundColor: scheme.inverseSurface, foregroundColor: scheme.onInverseSurface),
+                    onPressed: c.stopRecording,
+                  ),
+                ]),
+        ),
+      ),
+    );
+  }
+}
+
+/// Wyniki analizy na żywo: statystyki sesji, morfologia, ostatnie zdarzenia.
 class _LivePanel extends StatelessWidget {
   final LiveAnalyzer? live;
   final bool recording;
@@ -309,141 +559,71 @@ class _LivePanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l = live;
-    final scheme = Theme.of(context).colorScheme;
     final t = Theme.of(context).textTheme;
-    if (l == null || l.beats == 0) {
-      return Center(
-        child: Text('Analiza rytmu pojawi się po ok. 15 s…', style: t.bodySmall),
-      );
-    }
-
-    final (rhythmText, rhythmColor, rhythmIcon) = l.qualityPct < 60
-        ? ('Słaba jakość sygnału – popraw opaskę', Colors.grey.shade600, Icons.signal_cellular_connected_no_internet_0_bar)
-        : l.afNow
-            ? ('Rytm niemiarowy – podejrzenie migotania', const Color(0xFFD32F2F), Icons.warning_amber)
-            : ('Rytm miarowy', const Color(0xFF2E7D32), Icons.favorite);
+    final colors = AppColors.of(context);
+    if (l == null || l.beats == 0) return const SizedBox.shrink();
 
     String ago(DateTime? d) {
       if (d == null) return '';
       final s = DateTime.now().difference(d).inSeconds;
-      return s < 60 ? ' · ${s}s temu' : ' · ${s ~/ 60} min temu';
+      return s < 60 ? 'ostatnie ${s}s temu' : 'ostatnie ${s ~/ 60} min temu';
     }
 
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
-      children: [
-        Row(children: [
-          Icon(rhythmIcon, color: rhythmColor, size: 20),
-          const SizedBox(width: 6),
-          Expanded(child: Text(rhythmText, style: t.titleSmall?.copyWith(color: rhythmColor))),
-          Text('sygnał ${l.qualityPct.round()}%', style: t.labelSmall),
-        ]),
-        const SizedBox(height: 8),
-        Text(recording ? 'Od początku nagrania (${_LiveView._fmt(l.elapsed)})' : 'Od połączenia (${_LiveView._fmt(l.elapsed)})',
-            style: t.labelSmall?.copyWith(color: scheme.onSurfaceVariant)),
-        const SizedBox(height: 4),
-        Wrap(spacing: 8, runSpacing: 8, children: [
-          _Tile('Uderzenia', '${l.beats}'),
-          _Tile('Tętno śr.', l.hrMean?.round().toString() ?? '–', unit: '/min'),
-          _Tile('Min / maks', '${l.hrMin?.round() ?? '–'} / ${l.hrMax?.round() ?? '–'}', unit: '/min'),
-          _Tile('SDNN', l.sdnn?.round().toString() ?? '–', unit: 'ms'),
-          _Tile('Pobudzenia V', '${l.ve}', sub: l.lastV == null ? null : 'ostatnie${ago(l.lastV)}', color: l.ve > 0 ? const Color(0xFFD32F2F) : null),
-          _Tile('Pobudzenia S', '${l.sv}', sub: l.lastS == null ? null : 'ostatnie${ago(l.lastS)}', color: l.sv > 0 ? const Color(0xFF1976D2) : null),
-          _Tile('Nieczytelne', '${l.unknown}'),
-          if (l.activityMg != null) _Tile('Aktywność', l.activityLabel ?? '–', sub: '${l.activityMg!.round()} mg'),
-          if (l.activityMg != null) _Tile('Pozycja', l.posture ?? '–'),
-          _Tile('RMSSD (1 min)', l.rmssd?.round().toString() ?? '–', unit: 'ms'),
-          _Tile('QRS', l.qrsMs?.round().toString() ?? '–', unit: 'ms', color: _rangeColor('qrs_ms', l.qrsMs)),
-          _Tile('QTc', l.qtcMs?.round().toString() ?? '–', unit: 'ms', color: _rangeColor('qtc_ms', l.qtcMs)),
-          _Tile('PQ', l.prMs?.round().toString() ?? '–', unit: 'ms', color: _rangeColor('pr_ms', l.prMs)),
-          _Tile('T dodatni', l.tPosPct?.round().toString() ?? '–', unit: '%', color: _rangeColor('t_pos_pct', l.tPosPct)),
-        ]),
-        if (l.events.isNotEmpty) ...[
-          const SizedBox(height: 10),
-          Text('Ostatnie zdarzenia', style: t.labelMedium),
-          for (final e in l.events.reversed.take(5))
-            Padding(
-              padding: const EdgeInsets.only(top: 4),
-              child: Row(children: [
-                Icon(Icons.circle,
-                    size: 10,
-                    color: switch (e.severity) {
-                      Severity.high => const Color(0xFFD32F2F),
-                      Severity.medium => const Color(0xFFF57C00),
-                      Severity.low => scheme.outline,
-                    }),
-                const SizedBox(width: 6),
-                Text(fmtClock(e.time), style: t.labelSmall),
-                const SizedBox(width: 8),
-                Expanded(child: Text(e.label, style: t.bodySmall)),
-              ]),
-            ),
-        ],
-        const SizedBox(height: 8),
-      ],
-    );
-  }
-}
-
-/// Czerwony, gdy wartość poza zakresem referencyjnym.
-Color? _rangeColor(String key, double? v) {
-  final spec = paramsFor(AppSettings.instance.sex).where((p) => p.key == key).firstOrNull;
-  return spec?.within(v) == false ? const Color(0xFFD32F2F) : null;
-}
-
-class _Tile extends StatelessWidget {
-  final String label, value;
-  final String? unit, sub;
-  final Color? color;
-
-  const _Tile(this.label, this.value, {this.unit, this.sub, this.color});
-
-  @override
-  Widget build(BuildContext context) {
-    final t = Theme.of(context).textTheme;
-    final width = (MediaQuery.sizeOf(context).width - 24 - 8) / 2;
-    return Container(
-      width: width,
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(label, style: t.labelSmall),
-        Row(crossAxisAlignment: CrossAxisAlignment.baseline, textBaseline: TextBaseline.alphabetic, children: [
-          Text(value, style: t.titleMedium?.copyWith(color: color, fontWeight: FontWeight.w600)),
-          if (unit != null) ...[const SizedBox(width: 3), Text(unit!, style: t.labelSmall)],
-        ]),
-        if (sub != null) Text(sub!, style: t.labelSmall?.copyWith(fontSize: 10)),
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      SectionLabel(recording ? 'Nagranie · ${_fmtElapsed(l.elapsed)}' : 'Sesja · ${_fmtElapsed(l.elapsed)}'),
+      MetricGrid(children: [
+        MetricTile('Tętno śr.', l.hrMean?.round().toString() ?? '–', unit: '/min', icon: Icons.favorite_border),
+        MetricTile('Min / maks', '${l.hrMin?.round() ?? '–'}/${l.hrMax?.round() ?? '–'}', unit: '/min', icon: Icons.swap_vert),
+        MetricTile('Pobudzenia V', '${l.ve}',
+            sub: l.lastV == null ? 'komorowe' : ago(l.lastV), color: l.ve > 0 ? colors.beatV : null, icon: Icons.bolt),
+        MetricTile('Pobudzenia S', '${l.sv}',
+            sub: l.lastS == null ? 'nadkomorowe' : ago(l.lastS), color: l.sv > 0 ? colors.beatS : null, icon: Icons.bolt),
+        MetricTile('SDNN', l.sdnn?.round().toString() ?? '–', unit: 'ms', icon: Icons.ssid_chart),
+        MetricTile('RMSSD (1 min)', l.rmssd?.round().toString() ?? '–', unit: 'ms', icon: Icons.ssid_chart),
+        MetricTile('Uderzenia', '${l.beats}', sub: '${l.unknown} nieczytelnych', icon: Icons.tag),
+        if (l.activityMg != null)
+          MetricTile('Aktywność', l.activityLabel ?? '–',
+              sub: '${l.activityMg!.round()} mg · ${l.posture ?? '–'}', icon: Icons.directions_walk),
       ]),
-    );
-  }
-}
-
-class _Stat extends StatelessWidget {
-  final String label, value, unit;
-  final bool big;
-
-  const _Stat({required this.label, required this.value, required this.unit, this.big = false});
-
-  @override
-  Widget build(BuildContext context) {
-    final t = Theme.of(context).textTheme;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(label, style: t.labelSmall),
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.baseline,
-          textBaseline: TextBaseline.alphabetic,
-          children: [
-            Text(value, style: big ? t.headlineMedium : t.titleLarge),
-            const SizedBox(width: 3),
-            Text(unit, style: t.labelSmall),
-          ],
+      const SectionLabel('Przebieg (uśredniony)'),
+      MetricGrid(children: [
+        MetricTile('QRS', l.qrsMs?.round().toString() ?? '–', unit: 'ms', color: _rangeColor(context, 'qrs_ms', l.qrsMs)),
+        MetricTile('QTc', l.qtcMs?.round().toString() ?? '–', unit: 'ms', color: _rangeColor(context, 'qtc_ms', l.qtcMs)),
+        MetricTile('PQ', l.prMs?.round().toString() ?? '–', unit: 'ms', color: _rangeColor(context, 'pr_ms', l.prMs)),
+        MetricTile('T dodatni', l.tPosPct?.round().toString() ?? '–', unit: '%',
+            color: _rangeColor(context, 't_pos_pct', l.tPosPct)),
+      ]),
+      if (l.events.isNotEmpty) ...[
+        const SectionLabel('Ostatnie zdarzenia'),
+        Card(
+          child: Column(children: [
+            for (final (i, e) in l.events.reversed.take(5).indexed) ...[
+              if (i > 0) const Divider(indent: 16, endIndent: 16),
+              ListTile(
+                dense: true,
+                leading: Icon(Icons.circle, size: 12, color: _severityColor(context, e.severity)),
+                title: Text(e.label, style: t.bodyMedium),
+                trailing: Text(fmtClock(e.time), style: t.labelSmall),
+              ),
+            ],
+          ]),
         ),
       ],
-    );
+    ]);
   }
+}
+
+Color _severityColor(BuildContext context, Severity s) {
+  final c = AppColors.of(context);
+  return switch (s) {
+    Severity.high => c.danger,
+    Severity.medium => c.warning,
+    Severity.low => Theme.of(context).colorScheme.outline,
+  };
+}
+
+/// Kolor alarmowy, gdy wartość poza zakresem referencyjnym.
+Color? _rangeColor(BuildContext context, String key, double? v) {
+  final spec = paramsFor(AppSettings.instance.sex).where((p) => p.key == key).firstOrNull;
+  return spec?.within(v) == false ? AppColors.of(context).danger : null;
 }

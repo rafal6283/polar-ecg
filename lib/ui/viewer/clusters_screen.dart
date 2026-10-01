@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 
 import '../../analysis/analysis_result.dart';
 import '../../analysis/beat_clusters.dart';
+import 'format.dart';
+import '../theme/app_theme.dart';
 
 /// Przegląd grup morfologii (jak w programach holterowskich): pobudzenia o podobnym kształcie QRS
 /// są zebrane w grupy; całej grupie można jednym ruchem nadać etykietę. Zmiany wracają do ekranu
@@ -72,12 +74,21 @@ class _ClustersScreenState extends State<ClustersScreen> {
                 ),
                 const SizedBox(height: 8),
                 for (final (gi, c) in g.indexed)
-                  _ClusterCard(
+                  if (c.size >= 3) _ClusterCard(
                     cluster: c,
                     analysis: widget.analysis,
                     signal: widget.signal,
                     choice: _groupChoice[gi],
                     onChoose: (l) => _choose(gi, c, l),
+                  ),
+                if (g.any((c) => c.size < 3))
+                  Padding(
+                    padding: const EdgeInsets.all(8),
+                    child: Text(
+                      'Pominięto ${plural(g.where((c) => c.size < 3).fold(0, (n, c) => n + c.size), 'pojedyncze pobudzenie', 'pojedyncze pobudzenia', 'pojedynczych pobudzeń')} '
+                      'o nietypowym kształcie (zwykle zakłócenia) – znajdziesz je strzałkami w Przebiegu.',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
                   ),
               ],
             ),
@@ -116,13 +127,13 @@ class _ClusterCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(children: [
-              Text('${c.size} pobudzeń', style: t.titleSmall),
+              Text(plural(c.size, 'pobudzenie', 'pobudzenia', 'pobudzeń'), style: t.titleSmall),
               const SizedBox(width: 8),
               if (review)
                 Chip(
                   label: Text(c.mixed ? 'mieszana' : 'komorowa'),
                   visualDensity: VisualDensity.compact,
-                  backgroundColor: const Color(0x22F57C00),
+                  backgroundColor: AppColors.of(context).warning.withValues(alpha: 0.14),
                 ),
               const Spacer(),
               Text([for (var l = 0; l < 4; l++) if (c.labelCounts[l] > 0) '${_names[l]} ${c.labelCounts[l]}'].join(' · ')),
@@ -195,7 +206,7 @@ class _ClusterPainter extends CustomPainter {
       canvas.drawPath(p, thin);
     }
     final bold = Paint()
-      ..color = c.dominantLabel == BeatType.ventricular ? const Color(0xFFC62828) : scheme.onSurface
+      ..color = c.dominantLabel == BeatType.ventricular ? AppColors.light.beatV : scheme.onSurface
       ..strokeWidth = 2.2
       ..style = PaintingStyle.stroke;
     final p = Path();

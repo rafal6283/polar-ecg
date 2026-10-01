@@ -5,6 +5,8 @@ import '../alarms/alarm_service.dart';
 import '../analysis/analyzer.dart';
 import '../analysis/personal_profile.dart';
 import '../settings/app_settings.dart';
+import 'legend_screen.dart';
+import 'theme/app_theme.dart';
 
 class SettingsScreen extends StatelessWidget {
   final AppSettings settings;
@@ -22,7 +24,8 @@ class SettingsScreen extends StatelessWidget {
           final s = settings;
           Future<void> set(void Function(AppSettings) f) => s.update(f);
           return ListView(
-            children: [
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 24),
+            children: _sectioned([
               const _Header('Osoba'),
               ListTile(
                 title: const Text('Imię i nazwisko'),
@@ -143,8 +146,13 @@ class SettingsScreen extends StatelessWidget {
                         'test na DS2: V – czułość 86%, trafność 91%; S – czułość 12%, trafność 59%; '
                         'migotanie (2000 h zapisów dobowych) – czułość 92%, swoistość 93%'),
               ),
-              const SizedBox(height: 24),
-            ],
+              ListTile(
+                leading: const Icon(Icons.menu_book_outlined),
+                title: const Text('Legenda i opis pojęć'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const LegendScreen())),
+              ),
+            ]),
           );
         },
       ),
@@ -189,6 +197,28 @@ class SettingsScreen extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Grupuje kafelki między nagłówkami [_Header] w karty (wygląd „ustawień systemowych”).
+List<Widget> _sectioned(List<Widget> items) {
+  final out = <Widget>[];
+  var group = <Widget>[];
+  void flush() {
+    if (group.isEmpty) return;
+    out.add(Card(child: Column(children: group)));
+    group = <Widget>[];
+  }
+
+  for (final w in items) {
+    if (w is _Header) {
+      flush();
+      out.add(SectionLabel(w.text));
+    } else {
+      group.add(w);
+    }
+  }
+  flush();
+  return out;
 }
 
 class _Header extends StatelessWidget {

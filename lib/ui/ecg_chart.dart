@@ -1,6 +1,8 @@
 import 'dart:math';
 
 import 'package:flutter/material.dart';
+
+import 'theme/app_theme.dart';
 import 'package:flutter/scheduler.dart';
 
 import '../app_controller.dart';
@@ -72,7 +74,7 @@ class _EcgChartState extends State<EcgChart> with SingleTickerProviderStateMixin
         end: end,
         windowSamples: n,
         rangeUv: _range,
-        dark: Theme.of(context).brightness == Brightness.dark,
+        palette: AppColors.of(context),
       ),
       size: Size.infinite,
     );
@@ -83,7 +85,7 @@ class _EcgPainter extends CustomPainter {
   final EcgBuffer buffer;
   final int start, end, windowSamples;
   final double rangeUv;
-  final bool dark;
+  final AppColors palette;
 
   _EcgPainter({
     required this.buffer,
@@ -91,15 +93,12 @@ class _EcgPainter extends CustomPainter {
     required this.end,
     required this.windowSamples,
     required this.rangeUv,
-    required this.dark,
+    required this.palette,
   });
 
   @override
   void paint(Canvas canvas, Size size) {
-    final bg = dark ? const Color(0xFF1A1414) : const Color(0xFFFFF7F5);
-    final minor = dark ? const Color(0xFF3A2626) : const Color(0xFFF6D3CC);
-    final major = dark ? const Color(0xFF5E3434) : const Color(0xFFE8A196);
-    final trace = dark ? const Color(0xFFE8E8E8) : const Color(0xFF111111);
+    final bg = palette.paper, minor = palette.gridMinor, major = palette.gridMajor, trace = palette.trace;
 
     canvas.drawRect(Offset.zero & size, Paint()..color = bg);
 

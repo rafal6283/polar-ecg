@@ -21,6 +21,7 @@ import 'tachogram.dart';
 import 'viewport.dart';
 import 'waveform_card.dart';
 import '../legend_screen.dart';
+import '../theme/app_theme.dart';
 
 /// Przegląd i analiza jednego zapisu.
 class RecordingScreen extends StatefulWidget {
@@ -436,7 +437,7 @@ class _EventsTab extends StatelessWidget {
           const Padding(padding: EdgeInsets.fromLTRB(16, 12, 16, 4), child: Text('Zgłoszone objawy')),
           for (final m in markers)
             ListTile(
-              leading: const Icon(Icons.flag, color: Color(0xFF7B1FA2)),
+              leading: Icon(Icons.flag, color: AppColors.of(context).symptom),
               title: Text(m.label),
               subtitle: Text('${fmtClock(m.time)} · ${_rhythmAt(m.sample)}'),
               trailing: const Icon(Icons.chevron_right),
@@ -450,8 +451,8 @@ class _EventsTab extends StatelessWidget {
           ListTile(
             leading: Icon(Icons.circle,
                 color: switch (e.severity) {
-                  Severity.high => const Color(0xFFD32F2F),
-                  Severity.medium => const Color(0xFFF57C00),
+                  Severity.high => AppColors.of(context).danger,
+                  Severity.medium => AppColors.of(context).warning,
                   Severity.low => scheme.outline,
                 },
                 size: 14),
@@ -462,7 +463,7 @@ class _EventsTab extends StatelessWidget {
               if (unsure.contains(k)) 'niepewne – zakłócenia w pobliżu',
             ].join(' · ')),
             trailing: unsure.contains(k)
-                ? const Icon(Icons.help_outline, color: Color(0xFFF57C00))
+                ? Icon(Icons.help_outline, color: AppColors.of(context).warning)
                 : const Icon(Icons.chevron_right),
             onTap: () => onSelect(e),
           ),
@@ -569,9 +570,9 @@ class _ConfidenceCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = Theme.of(context).textTheme;
     final color = switch (conf.level) {
-      ConfidenceLevel.high => const Color(0xFF2E7D32),
-      ConfidenceLevel.medium => const Color(0xFFF57C00),
-      ConfidenceLevel.low => const Color(0xFFD32F2F),
+      ConfidenceLevel.high => AppColors.of(context).ok,
+      ConfidenceLevel.medium => AppColors.of(context).warning,
+      ConfidenceLevel.low => AppColors.of(context).danger,
     };
     return Card(
       margin: const EdgeInsets.only(bottom: 12),

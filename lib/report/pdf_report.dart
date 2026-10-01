@@ -49,10 +49,26 @@ Future<Uint8List> buildPdfReport({
   }
 
   const red = PdfColor.fromInt(0xFFC62828);
-  final small = const pw.TextStyle(fontSize: 8);
-  final h2 = pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold);
-  pw.Widget section(String title) =>
-      pw.Padding(padding: const pw.EdgeInsets.only(top: 10, bottom: 4), child: pw.Text(tx(title), style: h2));
+  final small = const pw.TextStyle(fontSize: 8, color: _grey);
+  pw.Widget section(String title) => pw.Container(
+        width: double.infinity,
+        margin: const pw.EdgeInsets.only(top: 14, bottom: 6),
+        padding: const pw.EdgeInsets.only(bottom: 3),
+        decoration: const pw.BoxDecoration(border: pw.Border(bottom: pw.BorderSide(color: _navy, width: 0.8))),
+        child: pw.Text(tx(title).toUpperCase(),
+            style: pw.TextStyle(fontSize: 10.5, fontWeight: pw.FontWeight.bold, color: _navy, letterSpacing: 0.8)),
+      );
+  // Nagłówek sekcji razem z treścią o stałej wysokości (nie rozdzielane między strony).
+  // (Row – poziomy Flex – nie dzieli się między strony, w przeciwieństwie do Column.)
+  pw.Widget keep(List<pw.Widget> children) => pw.Row(children: [
+        pw.Expanded(child: pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: children)),
+      ]);
+  final conf = AnalysisConfidence.of(a);
+  final confColor = switch (conf.level) {
+    ConfidenceLevel.high => PdfColors.green800,
+    ConfidenceLevel.medium => PdfColors.orange800,
+    ConfidenceLevel.low => red,
+  };
 
   // Wybór fragmentów EKG: objawy, zdarzenia (od najpoważniejszych), przykład rytmu podstawowego.
   final strips = <(int, String)>[];
@@ -84,24 +100,59 @@ Future<Uint8List> buildPdfReport({
     pageFormat: PdfPageFormat.a4,
     margin: const pw.EdgeInsets.all(15 * PdfPageFormat.mm),
     footer: (ctx) => pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, children: [
-      pw.Text(tx('Analiza automatyczna z jednego odprowadzenia (Polar H10). Nie jest diagnozą.'), style: small),
+      pw.Text(tx('Polar EKG · analiza automatyczna z jednego odprowadzenia – nie jest diagnozą lekarską.'), style: small),
       pw.Text('${ctx.pageNumber}/${ctx.pagesCount}', style: small),
     ]),
     build: (ctx) => [
-      pw.Text(tx('Raport EKG – zapis z opaski piersiowej'), style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold)),
-      pw.SizedBox(height: 4),
-      pw.Text(tx([
-        if (person.name.isNotEmpty) person.name,
-        if (person.age != null) 'wiek ${person.age}',
-        if (person.sex == 'M') 'mężczyzna' else if (person.sex == 'K') 'kobieta',
-      ].join(', '))),
-      pw.Text(tx('Zapis: ${date(tl.started)}, ${clock(tl.started)} · czas ${dur(s['duration_s'])} '
-          '(analizowane ${dur(s['analyzed_s'])})${deviceName == null ? '' : ' · $deviceName'}')),
-      pw.Text(tx(() {
-        final c = AnalysisConfidence.of(a);
-        return 'Wiarygodność analizy: ${c.level.label}${c.reasons.isEmpty ? '' : ' (${c.reasons.join('; ')})'}';
-      }()), style: const pw.TextStyle(fontSize: 9)),
-      pw.Text(tx('Jedno odprowadzenie piersiowe, 130 Hz. Wydruk EKG: 25 mm/s, 10 mm/mV.'), style: small),
+      _header(tx),
+      pw.SizedBox(height: 10),
+      pw.Row(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
+        pw.Expanded(
+          child: _infoBox(tx, 'Osoba', [
+            person.name.isEmpty ? 'nie podano' : person.name,
+            [
+              if (person.age != null) 'wiek ${person.age}',
+              if (person.sex == 'M') 'mężczyzna' else if (person.sex == 'K') 'kobieta',
+            ].join(', '),
+          ]),
+        ),
+        pw.SizedBox(width: 8),
+        pw.Expanded(
+          flex: 2,
+          child: _infoBox(tx, 'Zapis', [
+            '${date(tl.started)}, początek ${clock(tl.started)} · czas ${dur(s['duration_s'])} '
+                '(analizowane ${dur(s['analyzed_s'])})',
+            '${deviceName ?? 'Polar H10'} · jedno odprowadzenie piersiowe, 130 Hz · wydruk 25 mm/s, 10 mm/mV',
+          ]),
+        ),
+      ]),
+      pw.SizedBox(height: 6),
+      pw.Container(
+        padding: const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: pw.BoxDecoration(
+            border: pw.Border(left: pw.BorderSide(color: confColor, width: 3)), color: PdfColors.grey100),
+        child: pw.RichText(
+          text: pw.TextSpan(style: const pw.TextStyle(fontSize: 8.5), children: [
+            pw.TextSpan(text: tx('Wiarygodność analizy: ')),
+            pw.TextSpan(text: tx(conf.level.label), style: pw.TextStyle(color: confColor, fontWeight: pw.FontWeight.bold)),
+            if (conf.reasons.isNotEmpty) pw.TextSpan(text: tx(' – ${conf.reasons.join('; ')}')),
+          ]),
+        ),
+      ),
+      pw.SizedBox(height: 10),
+      pw.Row(children: [
+        for (final (i, k) in [
+          ('Tętno średnie', '${num0(s['hr_mean'])} /min', '${num0(s['hr_min'])}–${num0(s['hr_max'])} /min'),
+          ('Pobudzenia V', num0(s['v']), '${num0(s['v_per_h'], 1)} /h'),
+          ('Pobudzenia S', num0(s['s']), '${num0(s['s_per_h'], 1)} /h'),
+          ('Migotanie (AF)', '${num0(s['af_burden_pct'], 1)} %', 'czasu zapisu'),
+          ('Najdłuższa pauza', s['longest_pause_s'] == null ? '–' : '${num0(s['longest_pause_s'], 1)} s',
+              s['longest_pause_s'] == null ? 'brak > 2 s' : 'najdłuższa'),
+        ].indexed) ...[
+          if (i > 0) pw.SizedBox(width: 6),
+          pw.Expanded(child: _kpi(tx, k.$1, k.$2, k.$3)),
+        ],
+      ]),
 
       section('Podsumowanie'),
       _table(tx, [
@@ -140,7 +191,12 @@ Future<Uint8List> buildPdfReport({
         if (a.template != null) pw.Expanded(flex: 2, child: _templateWidget(a)),
       ]),
 
-      if (markers.isNotEmpty) ...[
+      if (markers.isNotEmpty && markers.length <= 15)
+        keep([
+          section('Zgłoszone objawy'),
+          _table(tx, [for (final m in markers) [clock(m.time), m.label]], header: ['Godzina', 'Objaw']),
+        ])
+      else if (markers.isNotEmpty) ...[
         section('Zgłoszone objawy'),
         _table(tx, [for (final m in markers) [clock(m.time), m.label]], header: ['Godzina', 'Objaw']),
       ],
@@ -159,16 +215,16 @@ Future<Uint8List> buildPdfReport({
         ], header: ['Godzina', 'Zdarzenie', 'Szczegóły', 'Waga']),
       if (a.events.length > 40) pw.Text(tx('… i ${a.events.length - 40} kolejnych'), style: small),
 
-      section('Tętno w czasie zapisu'),
-      _hrTrend(a),
+      keep([section('Tętno w czasie zapisu'), _hrTrend(a)]),
 
-      section('Fragmenty EKG'),
-      for (final (sample, title) in strips) ...[
-        pw.Text(tx(title), style: const pw.TextStyle(fontSize: 9)),
-        pw.SizedBox(height: 2),
-        _strip(a, signal, sample),
-        pw.SizedBox(height: 6),
-      ],
+      for (final (i, (sample, title)) in strips.indexed)
+        keep([
+          if (i == 0) section('Fragmenty EKG'),
+          pw.Text(tx(title), style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold)),
+          pw.SizedBox(height: 2),
+          _strip(a, signal, sample),
+          pw.SizedBox(height: 8),
+        ]),
       pw.SizedBox(height: 8),
       pw.Text(
           tx('Oznaczenia: N – prawidłowe, S – nadkomorowe, V – komorowe, Q – nieczytelne, A – w migotaniu. '
@@ -180,15 +236,100 @@ Future<Uint8List> buildPdfReport({
   return doc.save();
 }
 
+const _navy = PdfColor.fromInt(0xFF0B4F6C);
+const _navyLight = PdfColor.fromInt(0xFFE3EEF3);
+const _ecgRed = PdfColor.fromInt(0xFFD7263D);
+const _grey = PdfColor.fromInt(0xFF5F6B70);
+
 pw.Widget _table(String Function(String) tx, List<List<String>> rows, {List<String>? header}) =>
     pw.TableHelper.fromTextArray(
       headers: header?.map(tx).toList(),
       data: [for (final r in rows) r.map(tx).toList()],
       cellStyle: const pw.TextStyle(fontSize: 9),
-      headerStyle: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold),
-      cellPadding: const pw.EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-      border: const pw.TableBorder(horizontalInside: pw.BorderSide(width: 0.3, color: PdfColors.grey400)),
-      headerDecoration: const pw.BoxDecoration(color: PdfColors.grey200),
+      headerStyle: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold, color: _navy),
+      cellPadding: const pw.EdgeInsets.symmetric(horizontal: 5, vertical: 2.5),
+      border: const pw.TableBorder(horizontalInside: pw.BorderSide(width: 0.3, color: PdfColors.grey300)),
+      headerDecoration: const pw.BoxDecoration(color: _navyLight),
+      oddRowDecoration: const pw.BoxDecoration(color: PdfColor.fromInt(0xFFF7F9FA)),
+    );
+
+/// Pasek tytułowy: logo (serce z EKG) i nazwa raportu.
+pw.Widget _header(String Function(String) tx) => pw.Container(
+      padding: const pw.EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: const pw.BoxDecoration(color: _navy, borderRadius: pw.BorderRadius.all(pw.Radius.circular(6))),
+      child: pw.Row(children: [
+        pw.Container(
+          width: 30,
+          height: 30,
+          decoration: const pw.BoxDecoration(color: PdfColors.white, borderRadius: pw.BorderRadius.all(pw.Radius.circular(7))),
+          child: pw.CustomPaint(size: const PdfPoint(30, 30), painter: _paintLogo),
+        ),
+        pw.SizedBox(width: 10),
+        pw.Expanded(
+          child: pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
+            pw.Text(tx('Raport EKG'),
+                style: pw.TextStyle(fontSize: 17, fontWeight: pw.FontWeight.bold, color: PdfColors.white)),
+            pw.Text(tx('Zapis z opaski piersiowej Polar H10 – analiza rytmu i przebiegu'),
+                style: const pw.TextStyle(fontSize: 9, color: PdfColor.fromInt(0xFFCFE3EC))),
+          ]),
+        ),
+        pw.Text(tx('Polar EKG'), style: pw.TextStyle(fontSize: 9, color: PdfColors.white, fontWeight: pw.FontWeight.bold)),
+      ]),
+    );
+
+/// Logo w kwadracie 30 pt (układ PDF: oś Y w górę).
+void _paintLogo(PdfGraphics c, PdfPoint size) {
+  final w = size.x, h = size.y;
+  double x(double v) => 5 + v * (w - 10);
+  double y(double v) => h - (6 + v * (h - 11)); // v=0 góra serca
+  c
+    ..setFillColor(_ecgRed)
+    ..moveTo(x(0.5), y(0.93))
+    ..curveTo(x(0.18), y(0.70), x(0.0), y(0.50), x(0.0), y(0.30))
+    ..curveTo(x(0.0), y(0.12), x(0.15), y(0.0), x(0.30), y(0.0))
+    ..curveTo(x(0.40), y(0.0), x(0.47), y(0.05), x(0.5), y(0.14))
+    ..curveTo(x(0.53), y(0.05), x(0.60), y(0.0), x(0.70), y(0.0))
+    ..curveTo(x(0.85), y(0.0), x(1.0), y(0.12), x(1.0), y(0.30))
+    ..curveTo(x(1.0), y(0.50), x(0.82), y(0.70), x(0.5), y(0.93))
+    ..closePath()
+    ..fillPath();
+  const pts = [
+    (0.0, 0.52), (0.30, 0.52), (0.40, 0.60), (0.50, 0.18), (0.58, 0.76), (0.66, 0.52), (1.0, 0.52),
+  ];
+  c
+    ..setStrokeColor(PdfColors.white)
+    ..setLineWidth(1.6)
+    ..setLineJoin(PdfLineJoin.round)
+    ..setLineCap(PdfLineCap.round);
+  for (final (i, p) in pts.indexed) {
+    i == 0 ? c.moveTo(x(p.$1), y(p.$2)) : c.lineTo(x(p.$1), y(p.$2));
+  }
+  c.strokePath();
+}
+
+pw.Widget _infoBox(String Function(String) tx, String title, List<String> lines) => pw.Container(
+      padding: const pw.EdgeInsets.all(7),
+      decoration: pw.BoxDecoration(
+          border: pw.Border.all(color: PdfColors.grey300, width: 0.6),
+          borderRadius: const pw.BorderRadius.all(pw.Radius.circular(5))),
+      child: pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
+        pw.Text(tx(title).toUpperCase(),
+            style: pw.TextStyle(fontSize: 7.5, color: _navy, fontWeight: pw.FontWeight.bold, letterSpacing: 0.8)),
+        pw.SizedBox(height: 2),
+        for (final (i, l) in lines.where((l) => l.isNotEmpty).indexed)
+          pw.Text(tx(l), style: pw.TextStyle(fontSize: i == 0 ? 10 : 8.5, fontWeight: i == 0 ? pw.FontWeight.bold : null)),
+      ]),
+    );
+
+pw.Widget _kpi(String Function(String) tx, String label, String value, String sub) => pw.Container(
+      padding: const pw.EdgeInsets.fromLTRB(7, 6, 7, 6),
+      decoration: const pw.BoxDecoration(color: _navyLight, borderRadius: pw.BorderRadius.all(pw.Radius.circular(5))),
+      child: pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
+        pw.Text(tx(label), style: const pw.TextStyle(fontSize: 7.5, color: _grey)),
+        pw.SizedBox(height: 1),
+        pw.Text(tx(value), style: pw.TextStyle(fontSize: 13, fontWeight: pw.FontWeight.bold, color: _navy)),
+        pw.Text(tx(sub), style: const pw.TextStyle(fontSize: 7.5, color: _grey)),
+      ]),
     );
 
 const _gridMinor = PdfColor.fromInt(0xFFF6D3CC);

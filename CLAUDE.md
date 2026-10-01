@@ -14,6 +14,12 @@ Użytek własny – nie jest to wyrób medyczny (licencja flutter_blue_plus: `Li
   trend/epizody ST (`st_trend.dart`), blok AV II° i trzepotanie (`rhythms.dart`, AFL wyłączone), wiarygodność
   wyniku (`confidence.dart`), grupy morfologii (`beat_clusters.dart`, ekran `ui/viewer/clusters_screen.dart`).
 - `lib/report/` PDF, `lib/export/` EDF+/CSV, `lib/alarms/`, `lib/settings/`, `lib/ui/`.
+- Wygląd: `lib/ui/theme/app_theme.dart` – motyw (granat/morski, czerwień EKG), `AppColors` (kolory semantyczne:
+  N/S/V/Q, AF, ok/ostrzeżenie/alarm, papier EKG) i wspólne komponenty (`MetricTile`, `MetricGrid`, `StatusPill`,
+  `SectionLabel`). Nie wpisywać kolorów na sztywno w ekranach. Nawigacja dolna: Monitor / Zapisy / Trendy / Ustawienia.
+- Zrzuty ekranów bez telefonu: `SCREENSHOTS=<katalog> flutter test test/screenshots_test.dart` (Roboto + ikony
+  Material, syntetyczne EKG; bez zmiennej test pominięty). Ikony aplikacji (Android legacy/adaptacyjna/
+  monochromatyczna, iOS, ekran startowy): `flutter test tool/icons/icon_test.dart`.
 - `tool/` – narzędzia PC: `mitbih_eval.dart`, `train_classifier.dart`, `analyze.dart`, `strips_png.dart`,
   `template_png.dart`, `pdf_demo.dart`; walidacja: `af_eval.dart` (afdb/ltafdb), `st_eval.dart` (edb),
   `rhythm_eval.dart` (epizody rytmu z adnotacji), `mit_strips_png.dart` (paski z baz), `h10_compare.dart`

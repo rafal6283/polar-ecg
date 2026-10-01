@@ -4,6 +4,7 @@ import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'app_controller.dart';
 import 'settings/app_settings.dart';
 import 'ui/home_screen.dart';
+import 'ui/theme/app_theme.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -21,12 +22,12 @@ class PolarEcgApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const seed = Color(0xFFC62828);
     return WithForegroundTask(
       child: MaterialApp(
         title: 'Polar EKG',
-        theme: ThemeData(colorSchemeSeed: seed, useMaterial3: true),
-        darkTheme: ThemeData(colorSchemeSeed: seed, brightness: Brightness.dark, useMaterial3: true),
+        debugShowCheckedModeBanner: false,
+        theme: buildAppTheme(Brightness.light),
+        darkTheme: buildAppTheme(Brightness.dark),
         home: HomeScreen(controller: controller),
       ),
     );
