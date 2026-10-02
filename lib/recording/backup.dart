@@ -6,7 +6,7 @@ import 'package:archive/archive_io.dart';
 /// Pliki źródłowe zapisu – wystarczą, żeby odtworzyć zapis i analizę na innym telefonie/PC.
 /// (analysis.json / summary.json da się przeliczyć; wchodzą tylko gdy [withAnalysis].)
 const recordingSourceFiles = {
-  'ecg.bin', 'acc.bin', 'ecg.csv', 'rr.csv', 'events.csv', 'stamp.csv', 'markers.json', 'corrections.json',
+  'ecg.bin', 'acc.bin', 'ecg.csv', 'rr.csv', 'events.csv', 'stamp.csv', 'markers.json', 'corrections.json', 'af_marks.json',
   'meta.json',
 };
 const recordingDerivedFiles = {'analysis.json', 'summary.json'};

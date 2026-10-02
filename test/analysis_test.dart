@@ -1,8 +1,11 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:polar_ecg/analysis/af_episodes.dart';
 import 'package:polar_ecg/analysis/analysis_result.dart';
 import 'package:polar_ecg/analysis/analyzer.dart';
 import 'package:polar_ecg/analysis/beat_clusters.dart';
 import 'package:polar_ecg/analysis/confidence.dart';
+import 'package:polar_ecg/analysis/rhythm_at.dart';
+import 'package:polar_ecg/analysis/rhythm_check.dart';
 
 import 'synthetic_ecg.dart';
 
@@ -90,6 +93,31 @@ void main() {
     expect(detected, greaterThan(0.8 * (afEnd - afStart)));
     expect(detected, lessThan(1.2 * (afEnd - afStart)));
     expect(r.stats['af_burden_pct']!, closeTo(100 * 180 / 420, 10));
+
+    // Dziennik napadów: tętno w AF, kontekst 2 min rytmu zatokowego przed napadem.
+    final eps = afEpisodes(r, recording: 'test');
+    expect(eps, isNotEmpty);
+    final e = eps.first;
+    expect(e.fromStart, isFalse);
+    expect(e.contextSec, greaterThanOrEqualTo(100));
+    expect(e.hrBefore, isNotNull);
+    expect(e.hrMean, greaterThan(50));
+    expect(e.hrMax, greaterThanOrEqualTo(e.hrMean));
+    expect(AfEpisode.fromJson(e.toJson()).toJson(), e.toJson());
+    final diary = AfDiary.build([(started: r.timeline.started, seconds: 420.0, episodes: eps)]);
+    expect(diary.burdenPct!, closeTo(100 * 180 / 420, 10));
+    expect(diary.onsetHours.reduce((a, b) => a + b), eps.length);
+    expect(diary.longest, isNotNull);
+
+    // Ręczne oznaczenia: odrzucenie napadu i dodanie przeoczonego fragmentu.
+    final x = s.render();
+    final rejected = analyzeEcg(x, s.timeline(x.length),
+            afMarks: [for (final e in af) AfMark(e.startSample, e.endSample, false)]).result;
+    expect(rejected.events.where((e) => e.type == EventType.af), isEmpty);
+    final added = analyzeEcg(x, s.timeline(x.length), afMarks: [AfMark(10 * 130, 50 * 130, true)]).result;
+    final early = added.events.where((e) => e.type == EventType.af && e.startSample < 60 * 130).toList();
+    expect(early, isNotEmpty);
+    expect(afEpisodes(added).first.confirmed, isTrue);
   });
 
   test('pauza i artefakty', () {
@@ -144,5 +172,20 @@ void main() {
     final cn = AnalysisConfidence.of(analyzeEcg(xn, noisy.timeline(xn.length)).result);
     expect(cn.level, isNot(ConfidenceLevel.high));
     expect(cn.reasons, isNotEmpty);
+  });
+
+  test('sprawdzenie rytmu (1–2 min) i rytm przy objawie', () {
+    final sinus = run(SyntheticEcg(seed: 11)..sinus(60));
+    expect(rhythmVerdict(sinus).verdict, CheckVerdict.regular);
+    expect(rhythmAt(sinus, 30 * 130).text, startsWith('rytm bez zaburzeń'));
+
+    final af = run(SyntheticEcg(seed: 12)..af(120));
+    expect(rhythmVerdict(af).verdict, CheckVerdict.af);
+    final at = rhythmAt(af, 60 * 130);
+    expect(at.abnormal, isTrue);
+    expect(at.text, startsWith('migotanie'));
+
+    final noisy = run(SyntheticEcg(seed: 13)..noise(60));
+    expect(rhythmVerdict(noisy).verdict, CheckVerdict.unreadable);
   });
 }

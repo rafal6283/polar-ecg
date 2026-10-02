@@ -68,6 +68,9 @@ class AlarmService {
         await _fire('af', 'Niemiarowy rytm', 'Podejrzenie migotania przedsionków');
       } else if (settings.alarmVt && (l.startsWith(EventType.vt.label) || l.startsWith(EventType.ivr.label))) {
         await _fire('vt', 'Salwa pobudzeń komorowych', l);
+      } else if (settings.alarmContact && l == contactEventLabel) {
+        await _fire('contact', 'Słaby kontakt elektrod', 'Sygnał zakłócony od ponad minuty – zwilż elektrody i popraw pasek',
+            quiet: true, cooldownMin: 30);
       }
     }
     _seenEvents = live.events.length;
@@ -86,14 +89,16 @@ class AlarmService {
     return null;
   }
 
-  Future<void> _fire(String kind, String title, String body) async {
+  /// [quiet] – bez dźwięku i wibracji (np. w nocy nie budzi), tylko powiadomienie.
+  Future<void> _fire(String kind, String title, String body, {bool quiet = false, double? cooldownMin}) async {
     final now = DateTime.now();
     final last = _lastFired[kind];
-    if (last != null && now.difference(last).inSeconds < settings.alarmCooldownMin * 60) return;
+    if (last != null && now.difference(last).inSeconds < (cooldownMin ?? settings.alarmCooldownMin) * 60) return;
     _lastFired[kind] = now;
     lastAlarm = '$title: $body';
     lastAlarmTime = now;
-    if (settings.alarmVibrate) await HapticFeedback.heavyImpact();
+    final sound = settings.alarmSound && !quiet, vibrate = settings.alarmVibrate && !quiet;
+    if (vibrate) await HapticFeedback.heavyImpact();
     if (!_ready) return;
     try {
       await _plugin.show(
@@ -103,16 +108,16 @@ class AlarmService {
         notificationDetails: NotificationDetails(
           android: AndroidNotificationDetails(
             // Osobne kanały – Android zapamiętuje dźwięk/wibrację per kanał.
-            'alarm_${settings.alarmSound ? 's' : ''}${settings.alarmVibrate ? 'v' : ''}',
-            'Alarmy EKG',
+            quiet ? 'notice' : 'alarm_${sound ? 's' : ''}${vibrate ? 'v' : ''}',
+            quiet ? 'Ostrzeżenia EKG' : 'Alarmy EKG',
             channelDescription: 'Alarmy z analizy rytmu serca w czasie rzeczywistym',
-            importance: Importance.max,
-            priority: Priority.high,
-            playSound: settings.alarmSound,
-            enableVibration: settings.alarmVibrate,
+            importance: quiet ? Importance.defaultImportance : Importance.max,
+            priority: quiet ? Priority.defaultPriority : Priority.high,
+            playSound: sound,
+            enableVibration: vibrate,
             category: AndroidNotificationCategory.alarm,
           ),
-          iOS: DarwinNotificationDetails(presentSound: settings.alarmSound),
+          iOS: DarwinNotificationDetails(presentSound: sound),
         ),
       );
     } catch (e) {

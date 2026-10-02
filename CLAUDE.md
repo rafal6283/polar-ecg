@@ -12,7 +12,11 @@ Użytek własny – nie jest to wyrób medyczny (licencja flutter_blue_plus: `Li
   wykrywanie AF (Dash + COSEn + brak P), zdarzenia, HRV, morfologia (QRS/QT/PR/J/ST, mean2-8Hz, meanSystole),
   profil osobisty (`personal_profile.dart`, k-NN z ręcznych poprawek), analiza na żywo (`live_analyzer.dart`),
   trend/epizody ST (`st_trend.dart`), blok AV II° i trzepotanie (`rhythms.dart`, AFL wyłączone), wiarygodność
-  wyniku (`confidence.dart`), grupy morfologii (`beat_clusters.dart`, ekran `ui/viewer/clusters_screen.dart`).
+  wyniku (`confidence.dart`), grupy morfologii (`beat_clusters.dart`, ekran `ui/viewer/clusters_screen.dart`),
+  napady AF z okolicznościami i dziennik (`af_episodes.dart`: tętno w AF, 5 min przed – tętno, S/V, ruch;
+  `AfDiary` – obciążenie, pora, wzorzec spoczynek/wysiłek; w summary.json `af_episodes`), rytm przy objawie
+  (`rhythm_at.dart`), ocena szybkiego sprawdzenia (`rhythm_check.dart`), ręczne oznaczenia AF (`AfMark`,
+  `af_marks.json` w zapisie – potwierdzone/odrzucone/dodane, pierwszeństwo przed automatem; dane do strojenia).
 - `lib/report/` PDF (`pdf_report.dart` pojedynczy zapis, `summary_report.dart` raport zbiorczy z wielu zapisów –
   część tej samej biblioteki), `lib/export/` EDF+/CSV, `lib/alarms/`, `lib/settings/`, `lib/ui/`.
 - Kopia zapasowa / eksport wielu zapisów: `lib/recording/backup.dart` (ZIP: `recordings/<zapis>/…` pliki źródłowe,
@@ -21,6 +25,10 @@ Użytek własny – nie jest to wyrób medyczny (licencja flutter_blue_plus: `Li
 - Poranny pomiar HRV: `lib/analysis/hrv_session.dart` (RMSSD z RR opaski, odrzucanie artefaktów > 20% od mediany,
   ocena ln RMSSD względem własnej normy: średnia ± max(0.5 SD, 0.05) z 30 dni, ≥ 5 pomiarów),
   historia `<dane aplikacji>/hrv_morning.json`, ekran `lib/ui/hrv_screen.dart` (1 min wyciszenia + 2/3/5 min).
+- Sprawdź rytm: `lib/ui/rhythm_check_screen.dart` (1/2 min zapisu z objawem jako znacznik → ocena + PDF),
+  dziennik AF w Trendach (`lib/ui/af_diary_card.dart`, otwiera zapis na napadzie), ostrzeżenie o słabym kontakcie
+  (`LiveAnalyzer.contactWarning`: czytelność < 60% przez ≥ 1 min; powiadomienie ciche, co ≥ 30 min),
+  stan optymalizacji baterii w Ustawieniach.
 - Wygląd: `lib/ui/theme/app_theme.dart` – motyw (granat/morski, czerwień EKG), `AppColors` (kolory semantyczne:
   N/S/V/Q, AF, ok/ostrzeżenie/alarm, papier EKG) i wspólne komponenty (`MetricTile`, `MetricGrid`, `StatusPill`,
   `SectionLabel`). Nie wpisywać kolorów na sztywno w ekranach. Nawigacja dolna: Monitor / Zapisy / Trendy / Ustawienia.
@@ -47,6 +55,9 @@ Użytek własny – nie jest to wyrób medyczny (licencja flutter_blue_plus: `Li
    odzyskowi uderzeń `rescueCorr` – tylko jako N, bez fałszywych V/S).
    Wyniki v1.6.0 na DS2: QRS 99.7/99.9, VEB 85.7/92.5, SVEB 11.7/59.0, AF 99.9/93.2; afdb ECG1 Se 83.7% +P 96.6%;
    ltafdb czas AF Se 91.6% Sp 93.2%, 7.1 fałszywych epizodów/dobę.
+   Wyniki v1.7.0 na DS2: QRS 99.7/99.9, VEB 85.7/92.5, SVEB 11.3/58.4, AF 99.9/93.2; afdb ECG1 Se 83.8% +P 96.4%
+   Sp 97.9%, 62 fałszywe epizody (było 56); ltafdb: walidacja afExtend w toku (wariant przed progiem długości: +10% fałszywych epizodów – przeniesiono za próg); SVT ltafdb Se 19.9%, +P 29.6%,
+   19.7 fałszywych/dobę (było 18.9% / 18.1% / 37.4).
    physionet.org bywa zablokowany w chmurze – mirror: https://physionet-open.s3.amazonaws.com/<baza>/1.0.0/
    (lista plików: `?list-type=2&prefix=<baza>/1.0.0/`). Inne bazy (pobierać poza repo):
    - AF: strojone na afdb (oba odprowadzenia), test na ltafdb (1961 h): czas AF Se 91.6% Sp 93.2%,
@@ -93,11 +104,17 @@ DS2 VEB 87.0/86.2, SVEB 16.7/62.6 – odrzucona (więcej fałszywych V: N→V 37
 - Analiza na żywo: RR opaski (`addDeviceRr`), zgłasza też epizody AF, które zaczęły się i skończyły między
   przeliczeniami. Odtworzenie nocy: 1 alarm AF (z RR), bez RR – brak; brak fałszywych alarmów AF.
 - Rejestrator: punkt kontrolny co 1 min (flush + meta) – przerwany zapis nie traci długości.
+- v1.7.0: tachykardia zatokowa 23:02–23:05 nie jest już S/SVT (`sGradual` = 0.9: seria S, w której RR pierwszego
+  i poprzedniego > 0.9 × wcześniejszy, bez skoków > 10% i bez pauzy po serii → N; noc S 23:00 292 → 17;
+  DS1 S Se 70.3 → 69.4 (rekord 209), +P bez zmian). `afExtend`: AF rozszerzane na sąsiednie uderzenia S/Q
+  o RR 0.5–1.8× mediany epizodu (koniec: V lub 3 kolejne N) – napad 22:56 obejmuje teraz 22:56:00–22:56:46
+  (wcześniej pierwsze 13 s jako SVT). AF z RR opaski liczy też uderzenia S jako „niepewne EKG”.
 
 ## Następne kroki (otwarte)
 - Więcej zapisów H10 z potwierdzonymi/oznaczonymi napadami AF; potwierdzić epizod 22:56 z użytkownikiem.
-- Tachykardia zatokowa (noc 23:02–23:05) klasyfikowana jako S → fałszywe SVT; bramka szumu (DS2: bez progu
-  szumu VEB Se 94% przy tej samej +P) – kalibrować tylko na H10 (`h10_compare.dart`).
+- Personalizacja AF z oznaczeń użytkownika (`af_marks.json`, potwierdzone/odrzucone napady) – gdy będzie ich
+  kilka-kilkanaście: progi Dash/COSEn/afPCorr pod użytkownika; bramka szumu (DS2: bez progu szumu VEB Se 94%
+  przy tej samej +P) – kalibrować tylko na H10 (`h10_compare.dart`).
 - Pobudzenia S: nadal słabo (DS2 Se 12%); niemiarowość zatokowa vs S do sprawdzenia na H10.
 - Testy na telefonie użytkownika: połączenie w wersji release, akcelerometr (aktywność/pozycja),
   alarm testowy (pokazuje komunikat, gdy powiadomienia wyłączone), polskie znaki w PDF (Roboto w assets/fonts).

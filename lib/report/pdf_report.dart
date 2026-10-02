@@ -5,10 +5,12 @@ import 'dart:typed_data';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 
+import '../analysis/af_episodes.dart';
 import '../analysis/analysis_result.dart';
 import '../analysis/confidence.dart';
 import '../analysis/hrv_session.dart';
 import '../analysis/reference_ranges.dart';
+import '../analysis/rhythm_at.dart';
 import '../recording/markers.dart';
 
 part 'summary_report.dart';
@@ -78,13 +80,23 @@ Future<Uint8List> buildPdfReport({
   for (final m in markers) {
     if (m.sample >= 0) strips.add((m.sample, 'Objaw: ${m.label} (${clock(m.time)})'));
   }
+  // Początek i koniec napadów AF (najdłuższe 3) – lekarz ocenia sposób rozpoczęcia i zakończenia napadu.
+  final episodes = afEpisodes(a);
+  final afLongest = [...episodes]..sort((x, y) => y.duration.compareTo(x.duration));
+  for (final e in afLongest.take(3)) {
+    if (!e.fromStart) strips.add((e.startSample, 'Początek napadu AF (${clock(e.start)})'));
+    if (!e.toEnd && e.endSample - e.startSample > 10 * a.sampleRate) {
+      strips.add((e.endSample, 'Koniec napadu AF (${clock(e.end)})'));
+    }
+  }
+  final maxStrips = 8 + strips.length;
   final evSorted = [...a.events]..sort((x, y) => y.severity.index.compareTo(x.severity.index));
   for (final e in evSorted) {
-    if (strips.length >= 8) break;
+    if (strips.length >= min(maxStrips, 12)) break;
     if (strips.any((st) => (st.$1 - e.startSample).abs() < 10 * a.sampleRate)) continue;
     strips.add((e.startSample, '${e.type.label} ${e.detail} (${clock(tl.timeOf(e.startSample))})'));
   }
-  if (strips.length < 8) {
+  if (strips.length < min(maxStrips, 12)) {
     final vIdx = [for (var i = 0; i < a.labels.length; i++) if (a.labels[i] == BeatType.ventricular) i];
     if (vIdx.isNotEmpty) {
       final k = vIdx.first;
@@ -195,13 +207,18 @@ Future<Uint8List> buildPdfReport({
       ]),
 
       if (markers.isNotEmpty && markers.length <= 15)
-        keep([
-          section('Zgłoszone objawy'),
-          _table(tx, [for (final m in markers) [clock(m.time), m.label]], header: ['Godzina', 'Objaw']),
-        ])
+        keep([section('Zgłoszone objawy a rytm'), _symptomTable(a, markers, tx, clock)])
       else if (markers.isNotEmpty) ...[
-        section('Zgłoszone objawy'),
-        _table(tx, [for (final m in markers) [clock(m.time), m.label]], header: ['Godzina', 'Objaw']),
+        section('Zgłoszone objawy a rytm'),
+        _symptomTable(a, markers, tx, clock),
+      ],
+
+      if (episodes.isNotEmpty) ...[
+        section('Napady migotania przedsionków (${episodes.length})'),
+        _afTable(episodes, tx, clock),
+        pw.SizedBox(height: 2),
+        pw.Text(tx('Okoliczności: tętno, ruch (akcelerometr) i pobudzenia dodatkowe w 5 min przed napadem.'),
+            style: small),
       ],
 
       section('Zdarzenia (${a.events.length})'),
@@ -243,6 +260,40 @@ const _navy = PdfColor.fromInt(0xFF0B4F6C);
 const _navyLight = PdfColor.fromInt(0xFFE3EEF3);
 const _ecgRed = PdfColor.fromInt(0xFFD7263D);
 const _grey = PdfColor.fromInt(0xFF5F6B70);
+
+/// Objawy z opisem rytmu w ±30 s.
+pw.Widget _symptomTable(
+    AnalysisResult a, List<SymptomMarker> markers, String Function(String) tx, String Function(DateTime) clock,
+    {String Function(DateTime)? date}) {
+  return _table(tx, [
+    for (final m in markers)
+      [
+        date == null ? clock(m.time) : '${date(m.time)} ${clock(m.time)}',
+        m.label,
+        m.sample < 0 ? 'poza zapisem' : rhythmAt(a, m.sample).text,
+      ],
+  ], header: ['Czas', 'Objaw', 'Rytm w tej chwili (±30 s)']);
+}
+
+/// Tabela napadów AF z okolicznościami.
+pw.Widget _afTable(List<AfEpisode> eps, String Function(String) tx, String Function(DateTime) clock,
+    {String Function(DateTime)? date}) {
+  String dur(Duration d) => d.inMinutes >= 60
+      ? '${d.inHours} h ${d.inMinutes % 60} min'
+      : d.inSeconds >= 60
+          ? '${d.inMinutes} min ${d.inSeconds % 60} s'
+          : '${d.inSeconds} s';
+  return _table(tx, [
+    for (final e in eps)
+      [
+        date == null ? clock(e.start) : '${date(e.start)} ${clock(e.start)}',
+        dur(e.duration),
+        '${e.hrMean.round()} / ${e.hrMax.round()}',
+        e.hrBefore == null ? '–' : '${e.hrBefore!.round()}',
+        [if (e.confirmed) 'potwierdzony', ...e.circumstances].join(', '),
+      ],
+  ], header: ['Początek', 'Czas', 'Tętno śr./maks.', 'Tętno przed', 'Okoliczności']);
+}
 
 pw.Widget _table(String Function(String) tx, List<List<String>> rows, {List<String>? header}) =>
     pw.TableHelper.fromTextArray(

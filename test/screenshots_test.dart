@@ -18,6 +18,8 @@ import 'package:polar_ecg/recording/binary_format.dart';
 import 'package:polar_ecg/analysis/hrv_session.dart';
 import 'package:polar_ecg/ui/hrv_screen.dart';
 import 'package:polar_ecg/ui/legend_screen.dart';
+import 'package:polar_ecg/ui/rhythm_check_screen.dart';
+import 'package:polar_ecg/ui/trends_screen.dart';
 import 'package:polar_ecg/ui/recordings_screen.dart';
 import 'package:polar_ecg/ui/settings_screen.dart';
 import 'package:polar_ecg/ui/viewer/recording_screen.dart';
@@ -92,15 +94,21 @@ AppController _fakeConnected() {
 }
 
 /// Syntetyczny zapis w formacie aplikacji (sinus, pobudzenia V i S, pauza, zakłócenia) + znacznik objawu.
-Future<String> _writeRecording({String? root, String name = '20260115_073000', int seed = 11}) async {
+Future<String> _writeRecording(
+    {String? root, String name = '20260115_073000', int seed = 11, DateTime? started, bool af = false}) async {
   final dir = Directory('${root ?? Directory.systemTemp.createTempSync('shots').path}/$name')..createSync(recursive: true);
   File('${dir.path}/meta.json').writeAsStringSync(jsonEncode({
     'sample_rate_hz': 130,
-    'started': DateTime(2026, 1, 15, 7, 30).toIso8601String(),
+    'started': (started ?? DateTime(2026, 1, 15, 7, 30)).toIso8601String(),
     'device': 'Polar H10 A1B2C3D4',
   }));
-  final s = SyntheticEcg(seed: seed)
-    ..sinus(240)
+  final s = SyntheticEcg(seed: seed)..sinus(240);
+  if (af) {
+    s
+      ..af(300)
+      ..sinus(120);
+  }
+  s
     ..withPvcs(180)
     ..sinus(60)
     ..pause(3.1)
@@ -240,6 +248,37 @@ void main() {
         await tester.pump();
       }
       await _shot(tester, '32_hrv_wynik$suffix');
+    }, skip: skip);
+  
+    testWidgets('trendy – dziennik napadów AF$suffix', (tester) async {
+      tester.view.physicalSize = const Size(412, 915);
+      tester.view.devicePixelRatio = 1;
+      final docs = Directory.systemTemp.createTempSync('trends');
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
+          const MethodChannel('plugins.flutter.io/path_provider'), (call) async => docs.path);
+      await tester.runAsync(() async {
+        final root = '${docs.path}/recordings';
+        final now = DateTime.now();
+        for (final (i, h) in [(1, 23), (3, 2), (6, 14)].indexed) {
+          final st = DateTime(now.year, now.month, now.day - h.$1, h.$2, 10);
+          final p = await _writeRecording(root: root, name: 'r$i', seed: 20 + i, started: st, af: true);
+          await analyzeRecordingDir(p);
+        }
+      });
+      await tester.pumpWidget(_app(const TrendsScreen(), b));
+      await _settle(tester);
+      await _shot(tester, '40_trendy_af$suffix');
+      await tester.drag(find.byType(ListView).first, const Offset(0, -450));
+      await tester.pump(const Duration(milliseconds: 500));
+      await _shot(tester, '41_trendy_af_lista$suffix');
+    }, skip: skip);
+
+    testWidgets('sprawdź rytm – start$suffix', (tester) async {
+      tester.view.physicalSize = const Size(412, 915);
+      tester.view.devicePixelRatio = 1;
+      await tester.pumpWidget(_app(RhythmCheckScreen(controller: _fakeConnected()), b));
+      await tester.pump(const Duration(milliseconds: 300));
+      await _shot(tester, '50_sprawdz_rytm$suffix');
     }, skip: skip);
   }
 }

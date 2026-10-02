@@ -7,6 +7,8 @@ import 'analyzer.dart';
 import 'ecg_recording.dart';
 import 'personal_profile.dart';
 
+const contactEventLabel = 'Słaby kontakt elektrod – zwilż elektrody i popraw pasek';
+
 class LiveEvent {
   final DateTime time;
   final String label;
@@ -37,6 +39,15 @@ class LiveAnalyzer {
   final List<double> _rr8 = [];
   bool afNow = false;
   double qualityPct = 100; // % czytelnych pobudzeń w ostatnim oknie
+  static const poorQualityPct = 60.0;
+
+  /// Początek ciągłego słabego sygnału (zakłócenia, utrata kontaktu elektrod) – null, gdy sygnał dobry.
+  DateTime? get poorSince => _poorFrom == null ? null : _timeOf(_poorFrom!);
+  int? _poorFrom; // próbka (indeks bezwzględny)
+  bool _contactReported = false;
+
+  /// Sygnał zakłócony od ponad minuty – rytmu nie da się wiarygodnie ocenić.
+  bool get contactWarning => _poorFrom != null && _total - _poorFrom! >= 60 * fs;
   DateTime? lastV, lastS;
   final List<LiveEvent> events = [];
 
@@ -164,6 +175,7 @@ class LiveAnalyzer {
 
   /// Po zerwaniu połączenia sygnał nie jest ciągły – zaczynamy okno od nowa.
   void markGap() {
+    _poorFrom = null;
     _processed = _total;
     _lastBeat = _total;
   }
@@ -239,6 +251,16 @@ class LiveAnalyzer {
       }
     }
     qualityPct = inWindow == 0 ? 0 : 100 * clean / inWindow;
+    if (qualityPct < poorQualityPct) {
+      _poorFrom ??= max(start, end - fs * 30);
+      if (contactWarning && !_contactReported) {
+        _contactReported = true;
+        events.add(LiveEvent(poorSince!, contactEventLabel, Severity.low));
+      }
+    } else {
+      _poorFrom = null;
+      _contactReported = false;
+    }
     double? stat(String k) => res.stats[k]?.toDouble();
     if (stat('qrs_ms') != null) {
       qrsMs = stat('qrs_ms');

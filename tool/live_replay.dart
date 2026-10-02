@@ -15,7 +15,8 @@ Future<void> main(List<String> a) async {
   for (final useRr in [false, true]) {
     final live = LiveAnalyzer(130);
     var di = 0;
-    final hits = <int>[];
+    final hits = <int>[], contact = <int>[];
+    var wasPoor = false;
     for (var s = 0; s < secs; s++) {
       final from = s * 130, to = (s + 1) * 130;
       live.addSamples([for (var i = from; i < to && i < rec.uv.length; i++) rec.uv[i].round()]);
@@ -30,10 +31,12 @@ Future<void> main(List<String> a) async {
       if (s % 5 == 4) {
         live.process();
         if (live.afNow) hits.add(s);
+        if (live.contactWarning && !wasPoor) contact.add(s);
+        wasPoor = live.contactWarning;
       }
     }
     print(
-      '${useRr ? 'z RR opaski' : 'tylko EKG  '}: AF na żywo w sekundach: $hits; zdarzenia: ${live.events.map((e) => e.label).toList()}',
+      '${useRr ? 'z RR opaski' : 'tylko EKG  '}: AF na żywo w sekundach: $hits; ostrzeżenia o kontakcie (s): $contact; zdarzenia: ${live.events.map((e) => e.label).where((l) => l != contactEventLabel).toList()}',
     );
   }
 }

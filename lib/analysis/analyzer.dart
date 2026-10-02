@@ -4,6 +4,7 @@ import 'dart:isolate';
 import 'dart:math';
 import 'dart:typed_data';
 
+import 'af_episodes.dart';
 import 'analysis_result.dart';
 import 'beat_model.g.dart';
 import 'ecg_recording.dart';
@@ -28,9 +29,11 @@ class AnalysisSettings {
 
   // Progi klasyfikacji (strojone na MIT-BIH DS1, oceniane na DS2).
   final double noiseIdxLimit; // wskaźnik szumu wokół pobudzenia
-  final double wanderLimit;
-  final double vContext;
-  final bool useDeviceRr; // AF z odstępów RR opaski (rr.csv) w zakłóconych fragmentach EKG // V w kontekście zakłóceń -> Q: 0 wył., 1 nieprzedwczesne, 2 nieprzedwczesne z sąsiadem Q, 3 z sąsiadem Q // wolne wychylenia linii (mediana z 7 uderzeń) / |R| – utrata kontaktu elektrod (0 = wył.)
+  final double wanderLimit; // wolne wychylenia linii (mediana z 7 uderzeń) / |R| – utrata kontaktu elektrod (0 = wył.)
+  final double vContext; // V w kontekście zakłóceń -> Q: 0 wył., 1 nieprzedwczesne, 2 nieprzedwczesne z sąsiadem Q, 3 z sąsiadem Q
+  final bool useDeviceRr; // AF z odstępów RR opaski (rr.csv) w zakłóconych fragmentach EKG
+  final double afExtend; // rozszerzanie AF na sąsiednie serie S/Q o podobnej częstości (0 = wył.)
+  final double sGradual; // seria S bez nagłego początku i końca (RR/wcześniejsze > sGradual) -> N (0 = wył.)
   final double noiseExclSec; // okno wykluczenia wokół R przy liczeniu szumu
   final double sPrematurity; // RR/lokalny RR poniżej => przedwczesne nadkomorowe
   final double vCorrHard, vCorrSoft, vWidthHard, vWidthSoft, vPrematurity;
@@ -62,6 +65,8 @@ class AnalysisSettings {
     // H10 (noc, utrata kontaktu elektrod): czyste 0.18–0.19, artefakty mediana 1.46; MIT-BIH DS2 prawdziwe V: p99 0.87.
     this.wanderLimit = 1.0,
     this.useDeviceRr = true,
+    this.sGradual = 0.9,
+    this.afExtend = 1,
     this.vContext = 2, // DS2: VEB Se 85.8 -> 85.7, +P 91.8 -> 92.5; H10 noc: fałszywe V 152 -> 120
     this.noiseExclSec = 0.15,
     this.sPrematurity = 0.85,
@@ -106,6 +111,8 @@ class AnalysisSettings {
         noiseIdxLimit: v['noiseIdxLimit'] ?? noiseIdxLimit,
         wanderLimit: v['wanderLimit'] ?? wanderLimit,
         vContext: v['vContext'] ?? vContext,
+        sGradual: v['sGradual'] ?? sGradual,
+        afExtend: v['afExtend'] ?? afExtend,
         useDeviceRr: v.containsKey('useDeviceRr') ? v['useDeviceRr'] != 0 : useDeviceRr,
         noiseExclSec: v['noiseExclSec'] ?? noiseExclSec,
         sPrematurity: v['sPrematurity'] ?? sPrematurity,
@@ -175,7 +182,7 @@ const analysisFile = 'analysis.json';
 const summaryFile = 'summary.json';
 
 /// Krótkie podsumowanie zapisu do trendów (szybkie wczytywanie wielu zapisów).
-Map<String, dynamic> recordingSummary(AnalysisResult a) {
+Map<String, dynamic> recordingSummary(AnalysisResult a, {String recording = ''}) {
   const keys = [
     'duration_s', 'analyzed_s', 'hr_mean', 'hr_min', 'hr_max', 'hr_rest', 'rmssd_ms', 'sdnn_ms', 'pnn50_pct',
     'v_per_h', 's_per_h', 'af_burden_pct', 'qtc_ms', 'qrs_ms', 'pr_ms', 'longest_pause_s', 'beats',
@@ -191,6 +198,7 @@ Map<String, dynamic> recordingSummary(AnalysisResult a) {
     'events_high': a.events.where((e) => e.severity == Severity.high).length,
     // Pomiar poranny: krótki (1–15 min) zapis rozpoczęty między 5:00 a 10:00.
     'morning': h >= 5 && h < 10 && dur >= 60 && dur <= 900,
+    'af_episodes': [for (final e in afEpisodes(a, recording: recording)) e.toJson()],
   };
 }
 const filteredFile = 'ecg_filtered.f32';
@@ -206,6 +214,26 @@ Future<Map<int, int>> loadCorrections(String path) async {
   return {for (final e in j.entries) int.parse(e.key): e.value as int};
 }
 
+/// Ręczne oznaczenia napadów AF (potwierdzone / odrzucone / dodane).
+const afMarksFile = 'af_marks.json';
+
+Future<List<AfMark>> loadAfMarks(String path) async {
+  final f = File('$path/$afMarksFile');
+  if (!await f.exists()) return [];
+  try {
+    return [for (final m in jsonDecode(await f.readAsString()) as List) AfMark.fromJson(m as List)];
+  } catch (_) {
+    return [];
+  }
+}
+
+/// Dodaje oznaczenie; wcześniejsze nakładające się oznaczenia są zastępowane.
+Future<void> addAfMark(String path, AfMark m) async {
+  final all = (await loadAfMarks(path))..removeWhere((x) => x.overlaps(m.start, m.end));
+  all.add(m);
+  await File('$path/$afMarksFile').writeAsString(jsonEncode([for (final x in all) x.toJson()]));
+}
+
 Future<void> saveCorrections(String path, Map<int, int> c) =>
     File('$path/$correctionsFile').writeAsString(jsonEncode({for (final e in c.entries) '${e.key}': e.value}));
 
@@ -216,14 +244,16 @@ Future<AnalysisResult> analyzeRecordingDir(String path, {AnalysisSettings settin
   final dir = Directory(path);
   final rec = await EcgRecording.load(dir);
   final corrections = await loadCorrections(path);
+  final marks = await loadAfMarks(path);
   final profileFile = PersonalProfile.fileIn(dir.parent.parent);
   final profile = settings.usePersonal ? await PersonalProfile.load(profileFile) : null;
   final out = analyzeEcg(rec.uv, rec.timeline,
-      settings: settings, profile: profile, corrections: corrections, activity: rec.activity, deviceRr: rec.deviceRr);
+      settings: settings, profile: profile, corrections: corrections, activity: rec.activity, deviceRr: rec.deviceRr,
+      afMarks: marks);
   final f = out.filtered;
   await File('${dir.path}/$filteredFile').writeAsBytes(f.buffer.asUint8List(f.offsetInBytes, f.lengthInBytes));
   await File('${dir.path}/$analysisFile').writeAsString(jsonEncode(out.result.toJson()));
-  await File('${dir.path}/$summaryFile').writeAsString(jsonEncode(recordingSummary(out.result)));
+  await File('${dir.path}/$summaryFile').writeAsString(jsonEncode(recordingSummary(out.result, recording: _dirName(dir))));
 
   // Nauka profilu: wzorce z dobrych zapisów, przykłady z ręcznych poprawek.
   if (settings.usePersonal) {
@@ -236,13 +266,15 @@ Future<AnalysisResult> analyzeRecordingDir(String path, {AnalysisSettings settin
       changed = true;
     }
     if (corrections.isNotEmpty) {
-      p.setExamples(dir.uri.pathSegments.where((x) => x.isNotEmpty).last, out.correctedFeatures, out.correctedLabels);
+      p.setExamples(_dirName(dir), out.correctedFeatures, out.correctedLabels);
       changed = true;
     }
     if (changed) await p.save(profileFile);
   }
   return out.result;
 }
+
+String _dirName(Directory d) => d.uri.pathSegments.where((x) => x.isNotEmpty).last;
 
 /// Wczytuje zapisane wyniki analizy (null, jeśli brak lub nieaktualna wersja).
 Future<AnalysisResult?> loadAnalysis(String path) async {
@@ -281,6 +313,7 @@ AnalysisOutput analyzeEcg(
   Map<int, int>? corrections,
   Float32List? activity,
   List<(int, double)>? deviceRr,
+  List<AfMark>? afMarks,
 }) {
   final fs = tl.sampleRate;
   final corr = corrections ?? const <int, int>{};
@@ -322,6 +355,7 @@ AnalysisOutput analyzeEcg(
     ctx = make([for (final i in keep) ctx.r[i]], [for (final i in keep) ctx.seg[i]])..classify();
   }
   ctx.vInContext();
+  ctx.sInContext();
   final r = ctx.r;
   final n = r.length;
 
@@ -341,6 +375,7 @@ AnalysisOutput analyzeEcg(
   }
 
   ctx.detectAf();
+  ctx.applyAfMarks(afMarks ?? const []);
   final events = ctx.detectEvents();
   final stats = ctx.computeStats(events);
   final morph = measureMorphology(filtered, r, ctx.labels, ctx.inAf, tl);
@@ -363,6 +398,7 @@ AnalysisOutput analyzeEcg(
     probs: ctx.probs,
     activity: activity,
     corrected: {for (final e in corr.entries) e.key: e.value},
+    afMarks: afMarks ?? const [],
   );
   assert(result.labels.length == n);
 
@@ -580,6 +616,40 @@ class _Ctx {
     }
     for (final i in out) {
       labels[i] = BeatType.unknown;
+    }
+  }
+
+  /// Częstoskurcz zatokowy (wysiłek, wstawanie, emocje) przyspiesza i zwalnia stopniowo – kolejne odstępy RR
+  /// różnią się o kilka %. Seria pobudzeń S bez nagłego początku (RR pierwszego > sGradual × poprzedni),
+  /// bez skoków wewnątrz (< 10%) i bez pauzy po niej (następny RR < 1.15 × ostatni) to rytm zatokowy -> N.
+  /// (Klasyfikator myli przyspieszony rytm zatokowy z S, bo wzorzec QRS/P pochodzi z wolniejszego rytmu.)
+  void sInContext() {
+    if (cfg.sGradual <= 0) return;
+    var i = 1;
+    while (i < n) {
+      if (labels[i] != BeatType.supraventricular || inAf[i] == 1) {
+        i++;
+        continue;
+      }
+      var j = i;
+      while (j + 1 < n && labels[j + 1] == BeatType.supraventricular && seg[j + 1] == seg[i] && inAf[j + 1] == 0) {
+        j++;
+      }
+      // Nagły początek sprawdzamy też uderzenie wcześniej – pierwsze pobudzenie serii mogło zostać uznane za N.
+      // Odstępy przy pobudzeniach Q też się liczą (R z opaski zwykle trafny); pominięte/dodatkowe uderzenie daje
+      // skok RR, więc seria zostaje S.
+      var gradual = i >= 3 && seg[i - 2] == seg[i] && rr(i - 1) > 0 && rr(i - 2) > 0 &&
+          rr(i) > cfg.sGradual * rr(i - 1) && rr(i - 1) > cfg.sGradual * rr(i - 2);
+      for (var k = i + 1; k <= j && gradual; k++) {
+        if ((rr(k) / rr(k - 1) - 1).abs() > 0.1) gradual = false;
+      }
+      if (gradual && j + 1 < n && seg[j + 1] == seg[j] && rr(j + 1) > 1.15 * rr(j)) gradual = false;
+      if (gradual) {
+        for (var k = i; k <= j; k++) {
+          labels[k] = BeatType.normal;
+        }
+      }
+      i = j + 1;
     }
   }
 
@@ -1037,6 +1107,8 @@ class _Ctx {
       }
       i = j + 1;
     }
+    // Rozszerzenie tylko epizodów, które już spełniły próg długości (bez nowych krótkich epizodów).
+    if (cfg.afExtend > 0) _extendAf();
   }
 
   /// Kryteria nieregularności okna odstępów RR [s]: (Dash i wsp. 2009, COSEn > afCosen); null, gdy rytm wyraźnie
@@ -1077,11 +1149,13 @@ class _Ctx {
       if (to <= from || (to - from) / fs > w * 2.5) continue; // przerwa w odstępach
       final k0 = _beatAtOrAfter(from), k1 = _beatAtOrAfter(to);
       if (k1 - k0 < w ~/ 2) continue;
+      // Pobudzenia Q/zakłócone albo S (nieregularny szybki rytm bywa oznaczany jako seria S zamiast AF,
+      // np. napad trwający już przy założeniu opaski).
       var bad = 0;
       for (var k = k0; k < k1; k++) {
-        if (labels[k] == BeatType.unknown || beatNoisy[k] == 1) bad++;
+        if (labels[k] == BeatType.unknown || beatNoisy[k] == 1 || labels[k] == BeatType.supraventricular) bad++;
       }
-      if (bad < 0.25 * (k1 - k0)) continue; // EKG czytelne – decyduje analiza EKG
+      if (bad < 0.25 * (k1 - k0)) continue; // EKG czytelne, rytm N – decyduje analiza EKG
       final vals = [for (var k = w0; k < w0 + w; k++) d[k].$2 / 1000];
       if (vals.any((v) => v < 0.25 || v > 2.5)) continue;
       // Gubione/dodane uderzenia przy zakłóceniach dają odstępy ~2× i ~½ mediany – w AF rozkład jest ciągły
@@ -1094,6 +1168,62 @@ class _Ctx {
       final b = w0 + w + step > d.length ? k1 : _beatAtOrAfter(d[w0 + 3 * w ~/ 4].$1);
       for (var k = a; k < min(n, b); k++) {
         inAf[k] = 1;
+      }
+    }
+  }
+
+  /// Rozszerzenie epizodu AF na sąsiednie uderzenia S/Q o podobnej częstości: początek/koniec napadu bywa
+  /// opisany jako seria S (okno 32 RR nie spełnia jeszcze kryteriów). Granica: pobudzenie V, ≥ 3 kolejne N
+  /// albo odstęp RR poza 0.5–1.8× mediany RR epizodu (np. wolniejszy rytm zatokowy).
+  void _extendAf() {
+    var i = 0;
+    while (i < n) {
+      if (inAf[i] == 0) {
+        i++;
+        continue;
+      }
+      var j = i;
+      while (j + 1 < n && inAf[j + 1] == 1) {
+        j++;
+      }
+      final rrs = [for (var k = i + 1; k <= j; k++) if (rr(k) > 0) rr(k).toDouble()];
+      if (rrs.length >= 8) {
+        final med = _median(rrs);
+        bool fits(int k) => rr(k) > 0 && rr(k) > 0.5 * med && rr(k) < 1.8 * med && seg[k] == seg[i];
+        for (final dir in [-1, 1]) {
+          var k = dir < 0 ? i - 1 : j + 1, nRun = 0;
+          final add = <int>[];
+          while (k > 0 && k < n && inAf[k] == 0 && labels[k] != BeatType.ventricular && fits(dir < 0 ? k + 1 : k)) {
+            nRun = labels[k] == BeatType.normal ? nRun + 1 : 0;
+            if (nRun >= 3) break;
+            add.add(k);
+            k += dir;
+          }
+          // Końcowe N (przed granicą) nie należą do epizodu.
+          while (add.isNotEmpty && labels[add.last] == BeatType.normal) {
+            add.removeLast();
+          }
+          if (add.length >= 3) {
+            for (final q in add) {
+              inAf[q] = 1;
+              if (labels[q] == BeatType.supraventricular) labels[q] = BeatType.normal;
+            }
+          }
+        }
+      }
+      i = j + 1;
+      while (i < n && inAf[i] == 1) {
+        i++;
+      }
+    }
+  }
+
+  /// Ręczne oznaczenia AF: odrzucone fragmenty bez AF, potwierdzone/dodane – AF (S w AF -> N).
+  void applyAfMarks(List<AfMark> marks) {
+    for (final m in marks) {
+      for (var k = _beatAtOrAfter(m.start); k < n && r[k] <= m.end; k++) {
+        inAf[k] = m.af ? 1 : 0;
+        if (m.af && labels[k] == BeatType.supraventricular) labels[k] = BeatType.normal;
       }
     }
   }

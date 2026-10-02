@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../analysis/analysis_result.dart';
 import '../../analysis/analyzer.dart';
+import '../../analysis/rhythm_at.dart';
 import '../../analysis/confidence.dart';
 import '../../analysis/ecg_recording.dart';
 import '../../export/exporters.dart';
@@ -28,7 +29,11 @@ class RecordingScreen extends StatefulWidget {
   final String path;
   final String title;
 
-  const RecordingScreen({super.key, required this.path, required this.title});
+  /// Fragment do pokazania po otwarciu (np. napad AF z dziennika).
+  final int? initialSample, initialEndSample;
+
+  const RecordingScreen(
+      {super.key, required this.path, required this.title, this.initialSample, this.initialEndSample});
 
   @override
   State<RecordingScreen> createState() => _RecordingScreenState();
@@ -74,6 +79,8 @@ class _RecordingScreenState extends State<RecordingScreen> with SingleTickerProv
         _viewport = EcgViewport(totalSamples: sig.length, sampleRate: a.sampleRate);
         if (keepView) _viewport!.set(oldStart!, oldSpan);
       });
+      final at = widget.initialSample;
+      if (!keepView && at != null && at < sig.length) _goTo(at, endSample: widget.initialEndSample);
     } catch (e, st) {
       debugPrint('Błąd analizy ${widget.path}: $e\n$st');
       if (mounted) setState(() => _error = 'Błąd analizy: $e');
@@ -177,6 +184,35 @@ class _RecordingScreenState extends State<RecordingScreen> with SingleTickerProv
     }
   }
 
+  /// Ręczne oznaczenie napadu AF (potwierdzenie, odrzucenie, dodanie przeoczonego) i ponowna analiza.
+  Future<void> _markAf(int start, int end, bool af) async {
+    await addAfMark(widget.path, AfMark(start, end, af));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(af ? 'Oznaczono napad AF – przeliczam zapis' : 'Odrzucono napad AF – przeliczam zapis')));
+    await _load(force: true);
+  }
+
+  /// Oznaczenie fragmentu widocznego na ekranie (np. przeoczony napad).
+  Future<void> _markVisible(bool af) async {
+    final vp = _viewport!;
+    final start = vp.start.round().clamp(0, vp.totalSamples - 1), end = (vp.start + vp.span).round().clamp(0, vp.totalSamples - 1);
+    final a = _analysis!;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(af ? 'Oznaczyć jako migotanie przedsionków?' : 'Usunąć migotanie z tego fragmentu?'),
+        content: Text('Fragment ${fmtClock(a.timeline.timeOf(start))}–${fmtClock(a.timeline.timeOf(end))} '
+            '(widoczny na ekranie). Oznaczenie ma pierwszeństwo przed analizą automatyczną.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Anuluj')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Oznacz')),
+        ],
+      ),
+    );
+    if (ok == true) await _markAf(start, end, af);
+  }
+
   void _goTo(int sample, {int? endSample}) {
     final vp = _viewport!;
     final len = endSample == null ? 0 : endSample - sample;
@@ -225,10 +261,19 @@ class _RecordingScreenState extends State<RecordingScreen> with SingleTickerProv
               PopupMenuItem(value: 'rr', child: Text('CSV – odstępy RR (np. Kubios HRV)')),
             ],
           ),
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            tooltip: 'Analizuj ponownie',
-            onPressed: _busy ? null : () => _load(force: true),
+          PopupMenuButton<String>(
+            tooltip: 'Więcej',
+            enabled: a != null && !_busy,
+            onSelected: (v) => switch (v) {
+              'af' => _markVisible(true),
+              'noaf' => _markVisible(false),
+              _ => _load(force: true),
+            },
+            itemBuilder: (_) => const [
+              PopupMenuItem(value: 'af', child: Text('Oznacz widoczny fragment jako AF')),
+              PopupMenuItem(value: 'noaf', child: Text('Usuń AF z widocznego fragmentu')),
+              PopupMenuItem(value: 'redo', child: Text('Analizuj ponownie')),
+            ],
           ),
         ],
         bottom: TabBar(controller: _tabs, tabs: [
@@ -277,6 +322,7 @@ class _RecordingScreenState extends State<RecordingScreen> with SingleTickerProv
                           markers: _markers,
                           onSelect: (e) => _goTo(e.startSample, endSample: e.endSample),
                           onMarker: (m) => _goTo(m.sample),
+                          onAfMark: (e, af) => _markAf(e.startSample, e.endSample, af),
                         ),
                         _ReportTab(analysis: a),
                       ],
@@ -403,8 +449,14 @@ class _EventsTab extends StatelessWidget {
   final List<SymptomMarker> markers;
   final void Function(EcgEvent) onSelect;
   final void Function(SymptomMarker) onMarker;
+  final void Function(EcgEvent, bool af) onAfMark;
 
-  const _EventsTab({required this.analysis, required this.markers, required this.onSelect, required this.onMarker});
+  const _EventsTab(
+      {required this.analysis,
+      required this.markers,
+      required this.onSelect,
+      required this.onMarker,
+      required this.onAfMark});
 
   @override
   Widget build(BuildContext context) {
@@ -428,7 +480,7 @@ class _EventsTab extends StatelessWidget {
             ListTile(
               leading: Icon(Icons.flag, color: AppColors.of(context).symptom),
               title: Text(m.label),
-              subtitle: Text('${fmtClock(m.time)} · ${_rhythmAt(m.sample)}'),
+              subtitle: Text('${fmtClock(m.time)} · ${m.sample < 0 ? 'poza zapisem EKG' : rhythmAt(analysis, m.sample).text}'),
               trailing: const Icon(Icons.chevron_right),
               enabled: m.sample >= 0,
               onTap: () => onMarker(m),
@@ -451,32 +503,30 @@ class _EventsTab extends StatelessWidget {
               if (e.detail.isNotEmpty) e.detail,
               if (unsure.contains(k)) 'niepewne – zakłócenia w pobliżu',
             ].join(' · ')),
-            trailing: unsure.contains(k)
-                ? Icon(Icons.help_outline, color: AppColors.of(context).warning)
-                : const Icon(Icons.chevron_right),
+            trailing: e.type == EventType.af
+                ? PopupMenuButton<bool>(
+                    icon: Icon(
+                        analysis.afMarks.any((m) => m.af && m.overlaps(e.startSample, e.endSample))
+                            ? Icons.verified
+                            : Icons.more_vert,
+                        color: AppColors.of(context).af),
+                    tooltip: 'Potwierdź lub odrzuć napad',
+                    onSelected: (af) => onAfMark(e, af),
+                    itemBuilder: (_) => const [
+                      PopupMenuItem(value: true, child: Text('Potwierdzam – to był napad AF')),
+                      PopupMenuItem(value: false, child: Text('To nie był napad (fałszywy alarm)')),
+                    ],
+                  )
+                : unsure.contains(k)
+                    ? Icon(Icons.help_outline, color: AppColors.of(context).warning)
+                    : const Icon(Icons.chevron_right),
             onTap: () => onSelect(e),
           ),
       ],
     );
   }
-
-  /// Krótki opis rytmu w chwili objawu (±10 s) – czy objaw miał odpowiednik w EKG.
-  String _rhythmAt(int sample) {
-    if (sample < 0) return 'poza zapisem EKG';
-    final fs = analysis.sampleRate;
-    final a = analysis.beatIndexAtOrAfter(sample - 10 * fs), b = analysis.beatIndexAtOrAfter(sample + 10 * fs);
-    if (b - a < 2) return 'brak czytelnych uderzeń';
-    var v = 0, s = 0, af = false;
-    for (var k = a; k < b; k++) {
-      if (analysis.labels[k] == BeatType.ventricular) v++;
-      if (analysis.labels[k] == BeatType.supraventricular) s++;
-      if (analysis.inAf[k] == 1) af = true;
-    }
-    final hr = (60 * fs * (b - a - 1) / (analysis.rPeaks[b - 1] - analysis.rPeaks[a])).round();
-    final parts = ['$hr/min', if (af) 'migotanie', if (v > 0) 'V: $v', if (s > 0) 'S: $s'];
-    return parts.join(', ');
-  }
 }
+
 // ---------------- Raport ----------------
 
 class _ReportTab extends StatelessWidget {

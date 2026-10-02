@@ -9,6 +9,8 @@ import '../analysis/analyzer.dart';
 import '../analysis/hrv_session.dart';
 import '../recording/recorder.dart';
 import '../settings/app_settings.dart';
+import 'theme/app_theme.dart';
+import 'af_diary_card.dart';
 import 'viewer/format.dart';
 
 class _Metric {
@@ -123,6 +125,8 @@ class _TrendsScreenState extends State<TrendsScreen> {
                           : TextButton(onPressed: _analyzeMissing, child: const Text('ANALIZUJ')),
                     ),
                   ),
+                AfDiaryCard(rows: _rows),
+                const SectionLabel('Parametry w czasie'),
                 Wrap(spacing: 6, runSpacing: 6, children: [
                   for (var i = 0; i < _metrics.length; i++)
                     ChoiceChip(label: Text(_metrics[i].label), selected: i == _metric, onSelected: (_) => setState(() => _metric = i)),

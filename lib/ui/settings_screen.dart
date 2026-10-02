@@ -1,4 +1,7 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../alarms/alarm_service.dart';
@@ -68,6 +71,7 @@ class SettingsScreen extends StatelessWidget {
                 value: s.accEnabled,
                 onChanged: (v) => set((x) => x.accEnabled = v),
               ),
+              const _BackgroundTile(),
 
               const _Header('Analiza'),
               _SliderTile('Pauza od', s.pauseSeconds, 1.5, 5, 0.5, 's', (v) => set((x) => x.pauseSeconds = v), digits: 1),
@@ -116,6 +120,13 @@ class SettingsScreen extends StatelessWidget {
                   title: const Text('Salwa pobudzeń komorowych'),
                   value: s.alarmVt,
                   onChanged: (v) => set((x) => x.alarmVt = v ?? true),
+                ),
+                CheckboxListTile(
+                  title: const Text('Słaby kontakt elektrod'),
+                  subtitle: const Text('Sygnał zakłócony dłużej niż minutę – rytmu nie da się wtedy ocenić (bez dźwięku, '
+                      'najwyżej co 30 min)'),
+                  value: s.alarmContact,
+                  onChanged: (v) => set((x) => x.alarmContact = v ?? true),
                 ),
                 SwitchListTile(title: const Text('Dźwięk'), value: s.alarmSound, onChanged: (v) => set((x) => x.alarmSound = v)),
                 SwitchListTile(
@@ -266,4 +277,69 @@ class _SliderTile extends StatelessWidget {
           onChanged: onChanged,
         ),
       );
+}
+
+/// Praca w tle: wyłączona optymalizacja baterii (Android), żeby system nie przerywał nocnego zapisu.
+class _BackgroundTile extends StatefulWidget {
+  const _BackgroundTile();
+
+  @override
+  State<_BackgroundTile> createState() => _BackgroundTileState();
+}
+
+class _BackgroundTileState extends State<_BackgroundTile> with WidgetsBindingObserver {
+  bool? _ignoring;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _check();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  // Po powrocie z ustawień systemu – odśwież stan.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _check();
+  }
+
+  Future<void> _check() async {
+    if (!Platform.isAndroid) return;
+    try {
+      final v = await FlutterForegroundTask.isIgnoringBatteryOptimizations;
+      if (mounted) setState(() => _ignoring = v);
+    } catch (_) {}
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!Platform.isAndroid) return const SizedBox.shrink();
+    final colors = AppColors.of(context);
+    final ok = _ignoring == true;
+    return ListTile(
+      leading: Icon(ok ? Icons.battery_full : Icons.battery_alert, color: ok ? colors.ok : colors.warning),
+      title: const Text('Praca w tle (długie zapisy)'),
+      subtitle: Text(ok
+          ? 'Optymalizacja baterii wyłączona – system nie powinien przerywać zapisu. Na niektórych telefonach '
+              '(Xiaomi, Huawei, Samsung) sprawdź też autostart i „aplikacje bez ograniczeń”.'
+          : 'Optymalizacja baterii włączona – system może przerwać nocny zapis. Wyłącz ją dla Polar EKG.'),
+      isThreeLine: true,
+      trailing: ok
+          ? null
+          : TextButton(
+              onPressed: () async {
+                await FlutterForegroundTask.requestIgnoreBatteryOptimization();
+                await _check();
+              },
+              child: const Text('NAPRAW'),
+            ),
+      onTap: ok ? FlutterForegroundTask.openIgnoreBatteryOptimizationSettings : null,
+    );
+  }
 }

@@ -109,6 +109,21 @@ Future<Uint8List> buildSummaryReport({
       for (final m in it.markers) m
   ];
   final from = sorted.first.a.timeline.started, to = sorted.last.a.timeline.started;
+  final diary = AfDiary.build([
+    for (final it in sorted)
+      (
+        started: it.a.timeline.started,
+        seconds: (it.a.stats['analyzed_s'] ?? 0).toDouble(),
+        episodes: afEpisodes(it.a),
+      ),
+  ]);
+  String dur(Duration d) => d.inMinutes >= 60
+      ? '${d.inHours} h ${d.inMinutes % 60} min'
+      : d.inSeconds >= 60
+          ? '${d.inMinutes} min ${d.inSeconds % 60} s'
+          : '${d.inSeconds} s';
+  final oh = diary.onsetHours;
+  int hoursSum(int a, int b) => [for (var k = a; k != b; k = (k + 1) % 24) oh[k]].fold(0, (x, y) => x + y);
   final hrvIn = [
     for (final m in hrv)
       if (!m.time.isBefore(DateTime(from.year, from.month, from.day)) &&
@@ -181,6 +196,25 @@ Future<Uint8List> buildSummaryReport({
             ],
         ], header: ['Data', 'RMSSD', 'ln RMSSD', 'Tętno', 'SDNN', 'Ocena']),
       ],
+      if (diary.episodes.isNotEmpty) ...[
+        section('Napady migotania przedsionków (${diary.episodes.length})'),
+        _table(tx, [
+          ['Liczba napadów / łączny czas AF',
+            '${diary.episodes.length} / ${dur(Duration(seconds: diary.afSec.round()))} '
+                '(${num0(diary.burdenPct, 1)} % monitorowanego czasu)'],
+          ['Najdłuższy napad',
+            '${dur(diary.longest!.duration)} (${date(diary.longest!.start)} ${clock(diary.longest!.start)})'],
+          ['Tętno komór w AF: średnie / maks.', '${num0(diary.hrInAf)} / ${num0(diary.hrMaxInAf)} /min'],
+          ['Pora początku: noc 22–6 / rano 6–12 / popołudnie 12–18 / wieczór 18–22',
+            '${hoursSum(22, 6)} / ${hoursSum(6, 12)} / ${hoursSum(12, 18)} / ${hoursSum(18, 22)}'],
+          ['Okoliczności: spoczynek–noc / wysiłek–szybki rytm / nieustalone',
+            '${diary.countPattern('rest')} / ${diary.countPattern('exertion')} / ${diary.countPattern('unknown')}'],
+          ['Poprzedzone pobudzeniami S (≥ 5 lub salwa w 5 min)', '${diary.withSBefore}'],
+        ]),
+        pw.SizedBox(height: 6),
+        _afTable(diary.episodes.take(60).toList(), tx, clock, date: date),
+        if (diary.episodes.length > 60) pw.Text(tx('… i ${diary.episodes.length - 60} kolejnych'), style: small),
+      ],
       section('Zdarzenia średniej i wysokiej wagi (${events.length})'),
       if (events.isEmpty)
         pw.Text(tx('Brak.'))
@@ -196,9 +230,9 @@ Future<Uint8List> buildSummaryReport({
         ], header: ['Czas', 'Zdarzenie', 'Szczegóły', 'Waga']),
       if (events.length > 80) pw.Text(tx('… i ${events.length - 80} kolejnych'), style: small),
       if (symptoms.isNotEmpty) ...[
-        section('Zgłoszone objawy (${symptoms.length})'),
-        _table(tx, [for (final m in symptoms) ['${date(m.time)} ${clock(m.time)}', m.label]],
-            header: ['Czas', 'Objaw']),
+        section('Zgłoszone objawy a rytm (${symptoms.length})'),
+        for (final it in sorted)
+          if (it.markers.isNotEmpty) _symptomTable(it.a, it.markers, tx, clock, date: date),
       ],
       section('Zapisy'),
       _table(tx, [

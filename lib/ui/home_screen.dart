@@ -9,6 +9,7 @@ import '../app_controller.dart';
 import '../ble/polar_h10.dart';
 import 'ecg_chart.dart';
 import 'hrv_screen.dart';
+import 'rhythm_check_screen.dart';
 import 'legend_screen.dart';
 import 'settings_screen.dart';
 import 'theme/app_theme.dart';
@@ -278,7 +279,13 @@ class _LiveView extends StatelessWidget {
         if (c.link == LinkState.reconnecting)
           _Banner(icon: Icons.sync, text: 'Utracono połączenie – ponawiam…', color: colors.warning),
         if (c.skinContact == false)
-          _Banner(icon: Icons.touch_app_outlined, text: 'Brak kontaktu elektrod ze skórą – zwilż i popraw opaskę', color: colors.danger),
+          _Banner(icon: Icons.touch_app_outlined, text: 'Brak kontaktu elektrod ze skórą – zwilż i popraw opaskę', color: colors.danger)
+        else if (c.live?.contactWarning ?? false)
+          _Banner(
+              icon: Icons.water_drop_outlined,
+              text: 'Sygnał zakłócony od ${DateTime.now().difference(c.live!.poorSince!).inMinutes} min – zwilż elektrody, '
+                  'zapnij pasek ciaśniej. Rytmu nie da się teraz ocenić.',
+              color: colors.warning),
         Expanded(
           child: ListView(
             padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
@@ -468,16 +475,27 @@ class _HeroCard extends StatelessWidget {
             ]),
           ),
           const SizedBox(height: 10),
-          SizedBox(
-            width: double.infinity,
-            child: OutlinedButton.icon(
-              icon: const Icon(Icons.self_improvement),
-              label: const Text('Poranny pomiar HRV'),
-              style: OutlinedButton.styleFrom(minimumSize: const Size(64, 44)),
-              onPressed: () => Navigator.of(context)
-                  .push(MaterialPageRoute(builder: (_) => HrvMeasureScreen(controller: controller))),
+          Row(children: [
+            Expanded(
+              child: FilledButton.tonalIcon(
+                icon: const Icon(Icons.monitor_heart_outlined),
+                label: const Text('Sprawdź rytm'),
+                style: FilledButton.styleFrom(minimumSize: const Size(64, 44)),
+                onPressed: () => Navigator.of(context)
+                    .push(MaterialPageRoute(builder: (_) => RhythmCheckScreen(controller: controller))),
+              ),
             ),
-          ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: OutlinedButton.icon(
+                icon: const Icon(Icons.self_improvement),
+                label: const Text('Pomiar HRV'),
+                style: OutlinedButton.styleFrom(minimumSize: const Size(64, 44)),
+                onPressed: () => Navigator.of(context)
+                    .push(MaterialPageRoute(builder: (_) => HrvMeasureScreen(controller: controller))),
+              ),
+            ),
+          ]),
         ]),
       ),
     );

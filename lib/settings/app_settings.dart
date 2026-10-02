@@ -32,6 +32,7 @@ class AppSettings extends ChangeNotifier {
   bool alarmPause = true;
   bool alarmAf = true;
   bool alarmVt = true;
+  bool alarmContact = true; // ostrzeżenie o zakłóconym sygnale (słaby kontakt elektrod) dłużej niż 1 min
   bool alarmSound = true;
   bool alarmVibrate = true;
   double alarmCooldownMin = 2;
@@ -53,6 +54,7 @@ class AppSettings extends ChangeNotifier {
     alarmPause = p.getBool('alarmPause') ?? alarmPause;
     alarmAf = p.getBool('alarmAf') ?? alarmAf;
     alarmVt = p.getBool('alarmVt') ?? alarmVt;
+    alarmContact = p.getBool('alarmContact') ?? alarmContact;
     alarmSound = p.getBool('alarmSound') ?? alarmSound;
     alarmVibrate = p.getBool('alarmVibrate') ?? alarmVibrate;
     alarmCooldownMin = p.getDouble('alarmCooldownMin') ?? alarmCooldownMin;
@@ -80,6 +82,7 @@ class AppSettings extends ChangeNotifier {
       p.setBool('alarmPause', alarmPause),
       p.setBool('alarmAf', alarmAf),
       p.setBool('alarmVt', alarmVt),
+      p.setBool('alarmContact', alarmContact),
       p.setBool('alarmSound', alarmSound),
       p.setBool('alarmVibrate', alarmVibrate),
       p.setDouble('alarmCooldownMin', alarmCooldownMin),
@@ -91,7 +94,7 @@ class AppSettings extends ChangeNotifier {
         'name': name, 'birthYear': birthYear, 'sex': sex, 'accEnabled': accEnabled,
         'pauseSeconds': pauseSeconds, 'bradyBpm': bradyBpm, 'tachyBpm': tachyBpm, 'afMinSeconds': afMinSeconds,
         'usePersonal': usePersonal, 'alarmsEnabled': alarmsEnabled, 'alarmHrHigh': alarmHrHigh,
-        'alarmHrLow': alarmHrLow, 'alarmPause': alarmPause, 'alarmAf': alarmAf, 'alarmVt': alarmVt,
+        'alarmHrLow': alarmHrLow, 'alarmPause': alarmPause, 'alarmAf': alarmAf, 'alarmVt': alarmVt, 'alarmContact': alarmContact,
         'alarmSound': alarmSound, 'alarmVibrate': alarmVibrate, 'alarmCooldownMin': alarmCooldownMin,
       };
 
@@ -114,6 +117,7 @@ class AppSettings extends ChangeNotifier {
         s.alarmPause = v<bool>('alarmPause') ?? s.alarmPause;
         s.alarmAf = v<bool>('alarmAf') ?? s.alarmAf;
         s.alarmVt = v<bool>('alarmVt') ?? s.alarmVt;
+        s.alarmContact = v<bool>('alarmContact') ?? s.alarmContact;
         s.alarmSound = v<bool>('alarmSound') ?? s.alarmSound;
         s.alarmVibrate = v<bool>('alarmVibrate') ?? s.alarmVibrate;
         s.alarmCooldownMin = d('alarmCooldownMin') ?? s.alarmCooldownMin;
