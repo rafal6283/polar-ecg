@@ -30,7 +30,9 @@ Użytek własny – nie jest to wyrób medyczny (licencja flutter_blue_plus: `Li
 - `tool/` – narzędzia PC: `mitbih_eval.dart`, `train_classifier.dart`, `analyze.dart`, `strips_png.dart`,
   `template_png.dart`, `pdf_demo.dart`; walidacja: `af_eval.dart` (afdb/ltafdb), `st_eval.dart` (edb),
   `rhythm_eval.dart` (epizody rytmu z adnotacji), `mit_strips_png.dart` (paski z baz), `h10_compare.dart`
-  (zapisy H10: różnice między dwoma zestawami ustawień – używać przed każdą zmianą domyślnych).
+  (zapisy H10: różnice między dwoma zestawami ustawień – używać przed każdą zmianą domyślnych),
+  `rec_summary.dart` (zapis z aplikacji: godzinowo N/S/V/Q, zdarzenia), `rec_strips_png.dart` (paski z zapisu,
+  czas w s, mm:ss lub hh.mm.ss), `live_replay.dart` (odtworzenie zapisu przez analizę na żywo – alarmy AF).
 
 ## Walidacja (obowiązkowo przy zmianach analizy)
 1. `flutter test` (testy syntetyczne + formaty + eksport).
@@ -43,6 +45,8 @@ Użytek własny – nie jest to wyrób medyczny (licencja flutter_blue_plus: `Li
    bez 232 Se ≈ 24%. Walidacja krzyżowa na SVDB (po pacjentach): S Se 77% +P 63%.
    Wyniki v1.3.0 na DS2: QRS 99.7/99.9, VEB 86.3/91.4, SVEB 11.7/58.5, AF 99.9/93.2 (N→Q 2228 -> 1048 dzięki
    odzyskowi uderzeń `rescueCorr` – tylko jako N, bez fałszywych V/S).
+   Wyniki v1.6.0 na DS2: QRS 99.7/99.9, VEB 85.7/92.5, SVEB 11.7/59.0, AF 99.9/93.2; afdb ECG1 Se 83.7% +P 96.6%;
+   ltafdb czas AF Se 91.6% Sp 93.2%, 7.1 fałszywych epizodów/dobę.
    physionet.org bywa zablokowany w chmurze – mirror: https://physionet-open.s3.amazonaws.com/<baza>/1.0.0/
    (lista plików: `?list-type=2&prefix=<baza>/1.0.0/`). Inne bazy (pobierać poza repo):
    - AF: strojone na afdb (oba odprowadzenia), test na ltafdb (1961 h): czas AF Se 91.6% Sp 93.2%,
@@ -77,10 +81,23 @@ DS2 VEB 87.0/86.2, SVEB 16.7/62.6 – odrzucona (więcej fałszywych V: N→V 37
   uniwersalny -> Releases (`v<wersja>-b<100+run>`; z gałęzi innych niż main jako pre-release). Użytkownik pobiera
   APK z GitHub Releases na telefonie.
 
+## Zapisy H10 użytkownika (v1.6.0, 4 zapisy, m.in. noc 8 h; dane poza repo: /home/user/data/h10 w sesji)
+- Użytkownik ma napadowe AF. Noc: prawdopodobny krótki napad AF na początku (~22:56, ~142/min, ~33 s) –
+  EKG w tym czasie zakłócone, wykryty dopiero z RR opaski (`useDeviceRr`, `_afFromDeviceRr`: okna 32 RR, tylko
+  gdzie ≥ 25% pobudzeń Q/szum; odrzucenie przy RR < 0.25/> 2.5 s lub > 1 RR poza 0.5–1.7× mediany; Dash i COSEn).
+  RR opaski: `rr.csv` (RR grupowane w pakiety BLE; czas = koniec pakietu); start z meta `started_ms`
+  (meta `started` to czas lokalny bez strefy!) lub wiersza `start` w events.csv.
+- Fałszywe V/nsVT z utraty kontaktu elektrod (pływająca linia): `wanderLimit` = 1.0 (czyste H10 0.18–0.19,
+  artefakty mediana 1.46; DS2 V p99 0.87) i `vContext` = 2 (V bez przedwczesności i pauzy przy Q w ±2 → Q);
+  fałszywe V w nocy 238 → 120.
+- Analiza na żywo: RR opaski (`addDeviceRr`), zgłasza też epizody AF, które zaczęły się i skończyły między
+  przeliczeniami. Odtworzenie nocy: 1 alarm AF (z RR), bez RR – brak; brak fałszywych alarmów AF.
+- Rejestrator: punkt kontrolny co 1 min (flush + meta) – przerwany zapis nie traci długości.
+
 ## Następne kroki (otwarte)
-- Zapisy H10 użytkownika (najważniejsze): `dart run tool/h10_compare.dart <zapis>…` – sprawdzić zmiany v1.3.0
-  (odzysk uderzeń, nowe progi AF, SVT, blok AV, ST) i ewentualnie skalibrować bramkę szumu (DS2: bez progu
-  szumu VEB Se 94% przy tej samej +P – największy możliwy zysk, ale tylko z danymi H10).
+- Więcej zapisów H10 z potwierdzonymi/oznaczonymi napadami AF; potwierdzić epizod 22:56 z użytkownikiem.
+- Tachykardia zatokowa (noc 23:02–23:05) klasyfikowana jako S → fałszywe SVT; bramka szumu (DS2: bez progu
+  szumu VEB Se 94% przy tej samej +P) – kalibrować tylko na H10 (`h10_compare.dart`).
 - Pobudzenia S: nadal słabo (DS2 Se 12%); niemiarowość zatokowa vs S do sprawdzenia na H10.
 - Testy na telefonie użytkownika: połączenie w wersji release, akcelerometr (aktywność/pozycja),
   alarm testowy (pokazuje komunikat, gdy powiadomienia wyłączone), polskie znaki w PDF (Roboto w assets/fonts).

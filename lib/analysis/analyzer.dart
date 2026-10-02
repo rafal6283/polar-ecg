@@ -28,6 +28,9 @@ class AnalysisSettings {
 
   // Progi klasyfikacji (strojone na MIT-BIH DS1, oceniane na DS2).
   final double noiseIdxLimit; // wskaźnik szumu wokół pobudzenia
+  final double wanderLimit;
+  final double vContext;
+  final bool useDeviceRr; // AF z odstępów RR opaski (rr.csv) w zakłóconych fragmentach EKG // V w kontekście zakłóceń -> Q: 0 wył., 1 nieprzedwczesne, 2 nieprzedwczesne z sąsiadem Q, 3 z sąsiadem Q // wolne wychylenia linii (mediana z 7 uderzeń) / |R| – utrata kontaktu elektrod (0 = wył.)
   final double noiseExclSec; // okno wykluczenia wokół R przy liczeniu szumu
   final double sPrematurity; // RR/lokalny RR poniżej => przedwczesne nadkomorowe
   final double vCorrHard, vCorrSoft, vWidthHard, vWidthSoft, vPrematurity;
@@ -56,6 +59,10 @@ class AnalysisSettings {
     this.tachyBpm = 120,
     this.afMinSeconds = 30,
     this.noiseIdxLimit = 0.024, // H10: czyste 0.005–0.018, zakłócenia ruchowe ≥ 0.027
+    // H10 (noc, utrata kontaktu elektrod): czyste 0.18–0.19, artefakty mediana 1.46; MIT-BIH DS2 prawdziwe V: p99 0.87.
+    this.wanderLimit = 1.0,
+    this.useDeviceRr = true,
+    this.vContext = 2, // DS2: VEB Se 85.8 -> 85.7, +P 91.8 -> 92.5; H10 noc: fałszywe V 152 -> 120
     this.noiseExclSec = 0.15,
     this.sPrematurity = 0.85,
     this.vCorrHard = 0.7,
@@ -97,6 +104,9 @@ class AnalysisSettings {
         tachyBpm: v['tachyBpm'] ?? tachyBpm,
         afMinSeconds: v['afMinSeconds'] ?? afMinSeconds,
         noiseIdxLimit: v['noiseIdxLimit'] ?? noiseIdxLimit,
+        wanderLimit: v['wanderLimit'] ?? wanderLimit,
+        vContext: v['vContext'] ?? vContext,
+        useDeviceRr: v.containsKey('useDeviceRr') ? v['useDeviceRr'] != 0 : useDeviceRr,
         noiseExclSec: v['noiseExclSec'] ?? noiseExclSec,
         sPrematurity: v['sPrematurity'] ?? sPrematurity,
         vCorrHard: v['vCorrHard'] ?? vCorrHard,
@@ -209,7 +219,7 @@ Future<AnalysisResult> analyzeRecordingDir(String path, {AnalysisSettings settin
   final profileFile = PersonalProfile.fileIn(dir.parent.parent);
   final profile = settings.usePersonal ? await PersonalProfile.load(profileFile) : null;
   final out = analyzeEcg(rec.uv, rec.timeline,
-      settings: settings, profile: profile, corrections: corrections, activity: rec.activity);
+      settings: settings, profile: profile, corrections: corrections, activity: rec.activity, deviceRr: rec.deviceRr);
   final f = out.filtered;
   await File('${dir.path}/$filteredFile').writeAsBytes(f.buffer.asUint8List(f.offsetInBytes, f.lengthInBytes));
   await File('${dir.path}/$analysisFile').writeAsString(jsonEncode(out.result.toJson()));
@@ -270,6 +280,7 @@ AnalysisOutput analyzeEcg(
   PersonalProfile? profile,
   Map<int, int>? corrections,
   Float32List? activity,
+  List<(int, double)>? deviceRr,
 }) {
   final fs = tl.sampleRate;
   final corr = corrections ?? const <int, int>{};
@@ -302,7 +313,7 @@ AnalysisOutput analyzeEcg(
   //    (poza pobudzeniami poprawionymi ręcznie).
   final keepSamples = corr.keys.toSet();
   _Ctx make(List<int> r, List<int> sg) => _Ctx(fs, filtered, Int32List.fromList(r), Int32List.fromList(sg),
-      noisyMask, noiseWin, tl, settings, profile: profile, activity: activity);
+      noisyMask, noiseWin, tl, settings, profile: profile, activity: activity, deviceRr: deviceRr);
   var ctx = make(peaks, beatSeg)..classify();
   for (var pass = 0; pass < 2; pass++) {
     final drop = ctx.artifactBeats()..removeWhere((i) => keepSamples.contains(ctx.r[i]));
@@ -310,6 +321,7 @@ AnalysisOutput analyzeEcg(
     final keep = [for (var i = 0; i < ctx.n; i++) if (!drop.contains(i)) i];
     ctx = make([for (final i in keep) ctx.r[i]], [for (final i in keep) ctx.seg[i]])..classify();
   }
+  ctx.vInContext();
   final r = ctx.r;
   final n = r.length;
 
@@ -486,25 +498,88 @@ class _Ctx {
   final AnalysisSettings cfg;
   final PersonalProfile? profile;
   final Float32List? activity; // mg w oknach noiseWin
+  final List<(int, double)>? deviceRr; // (próbka, RR [ms]) z opaski
   late final Uint8List labels = Uint8List(r.length);
   late final Uint8List inAf = Uint8List(r.length);
   late final Uint8List beatNoisy;
 
-  _Ctx(this.fs, this.f, this.r, this.seg, this.noisyMask, this.noiseWin, this.tl, this.cfg, {this.profile, this.activity}) {
+  _Ctx(this.fs, this.f, this.r, this.seg, this.noisyMask, this.noiseWin, this.tl, this.cfg,
+      {this.profile, this.activity, this.deviceRr}) {
     beatNoisy = Uint8List(r.length);
     final half = fs ~/ 2;
     final noiseIdx = _noiseIdx = _beatNoiseIndex();
+    final wander = _wanderIndex();
     for (var i = 0; i < r.length; i++) {
       final w = r[i] ~/ noiseWin;
       final s = tl.segments[seg[i]];
       final local = _quality(f, max(s.start, r[i] - half), min(s.end, r[i] + half));
       // Podczas intensywnego ruchu (akcelerometr) próg szumu jest ostrzejszy – częstsze artefakty.
       final limit = activityAt(r[i]) > 150 ? cfg.noiseIdxLimit * 0.75 : cfg.noiseIdxLimit;
-      final hard = (w < noisyMask.length && noisyMask[w] == 1) || _isNoisy(local);
+      final hard = (w < noisyMask.length && noisyMask[w] == 1) || _isNoisy(local) ||
+          (cfg.wanderLimit > 0 && wander[i] > cfg.wanderLimit);
       beatNoisy[i] = (hard || noiseIdx[i] > limit) ? 1 : 0;
       // Kandydat do odzysku: odrzucony wyłącznie przez umiarkowanie podwyższony wskaźnik szumu
       // (np. fale migotania, drobne drżenie linii izoelektrycznej).
       if (!hard && noiseIdx[i] > limit && noiseIdx[i] < 2.5 * limit) _rescued[i] = 2;
+    }
+  }
+
+  /// Wolne wychylenia linii izoelektrycznej (utrata kontaktu elektrod, odklejanie się opaski – bez ruchu ciała):
+  /// zakres średniej kroczącej 0.3 s w ±0.6 s wokół R, względem mediany |R| z ±16 uderzeń; dla pobudzenia
+  /// mediana z 7 sąsiednich (prawdziwe szerokie pobudzenie V ma czyste sąsiedztwo, artefakt zaburza cały odcinek).
+  Float64List _wanderIndex() {
+    final own = Float64List(n), out = Float64List(n);
+    if (n == 0) return out;
+    final ma = (0.3 * fs).round(), half = (0.6 * fs).round();
+    final amps = [for (final p in r) f[p].abs().toDouble()];
+    for (var i = 0; i < n; i++) {
+      final ref = _median([for (var j = max(0, i - 16); j < min(n, i + 17); j++) amps[j]]);
+      if (ref <= 0) continue;
+      final s = tl.segments[seg[i]];
+      final a = max(s.start, r[i] - half), b = min(s.end, r[i] + half);
+      var lo = double.infinity, hi = -double.infinity, acc = 0.0;
+      for (var k = a; k < b; k++) {
+        acc += f[k];
+        if (k - a >= ma) acc -= f[k - ma];
+        if (k - a >= ma - 1) {
+          final m = acc / ma;
+          if (m < lo) lo = m;
+          if (m > hi) hi = m;
+        }
+      }
+      if (hi >= lo) own[i] = (hi - lo) / ref;
+    }
+    for (var i = 0; i < n; i++) {
+      out[i] = _median([for (var j = max(0, i - 3); j < min(n, i + 4); j++) own[j]]);
+    }
+    return out;
+  }
+
+  /// Pobudzenie V niepasujące do kontekstu (nie przedwczesne i bez pauzy wyrównawczej / obok zakłóceń) – artefakt
+  /// zmieniający kształt QRS, nie prawdziwe pobudzenie komorowe -> Q (nieczytelne).
+  void vInContext() {
+    final mode = cfg.vContext.round();
+    if (mode == 0) return;
+    final out = <int>[];
+    for (var i = 1; i < n; i++) {
+      if (labels[i] != BeatType.ventricular) continue;
+      final loc = localRr(i);
+      final pre = rr(i) > 0 && !loc.isNaN ? rr(i) / loc : double.nan;
+      final post = i + 1 < n && rr(i + 1) > 0 && !loc.isNaN ? rr(i + 1) / loc : double.nan;
+      final timing = (!pre.isNaN && pre < 0.92) || (!post.isNaN && post > 1.1) || pre.isNaN;
+      var qNear = false;
+      for (var k = max(0, i - 2); k <= min(n - 1, i + 2); k++) {
+        if (k != i && labels[k] == BeatType.unknown) qNear = true;
+      }
+      final drop = switch (mode) {
+        1 => !timing,
+        2 => !timing && qNear,
+        _ => qNear,
+      };
+      if (drop) out.add(i);
+    }
+    for (final i in out) {
+      labels[i] = BeatType.unknown;
     }
   }
 
@@ -902,29 +977,13 @@ class _Ctx {
       idx.add(i);
     }
     final feats = features;
-    const w = 32, step = 4, trim = 2;
+    const w = 32, step = 4;
     for (var w0 = 0; w0 + w <= rrs.length; w0 += step) {
       if (idx[w0 + w - 1] - idx[w0] > w * 2) continue; // za dużo odrzuconych pobudzeń
       final vals = rrs.sublist(w0, w0 + w);
-      final sorted = [...vals]..sort();
-      final lo = sorted[trim], hi = sorted[w - 1 - trim];
-      final x = [for (final v in vals) if (v >= lo && v <= hi) v];
-      if (x.length < 16) continue;
-      final m = x.reduce((a, b) => a + b) / x.length;
-      var ss = 0.0;
-      for (var k = 1; k < x.length; k++) {
-        ss += (x[k] - x[k - 1]) * (x[k] - x[k - 1]);
-      }
-      final nrmssd = sqrt(ss / (x.length - 1)) / m;
-      if (nrmssd <= 0.06) continue;
-      var tp = 0;
-      for (var k = 1; k < x.length - 1; k++) {
-        if ((x[k] - x[k - 1]) * (x[k + 1] - x[k]) < 0) tp++;
-      }
-      final nn = x.length;
-      final mu = (2 * nn - 4) / 3, sd = sqrt((16 * nn - 29) / 90);
-      final dash = nrmssd > 0.1 && tp > mu - 2 * sd && tp < mu + 2 * sd && _shannon(x) > 0.6;
-      final cosen = _cosen(vals) > cfg.afCosen;
+      final irr = _irregularity(vals);
+      if (irr == null) continue;
+      final (dash, cosen) = irr;
       bool? pAbsent;
       if (feats != null) {
         final pc = <double>[
@@ -943,6 +1002,7 @@ class _Ctx {
         inAf[b] = 1;
       }
     }
+    _afFromDeviceRr();
     // Połącz epizody rozdzielone krótką przerwą (np. kilka regularniejszych odstępów w trakcie AF).
     if (cfg.afGapSec > 0) {
       var last = -1;
@@ -977,6 +1037,78 @@ class _Ctx {
       }
       i = j + 1;
     }
+  }
+
+  /// Kryteria nieregularności okna odstępów RR [s]: (Dash i wsp. 2009, COSEn > afCosen); null, gdy rytm wyraźnie
+  /// miarowy (nRMSSD ≤ 0.06) albo za mało odstępów po odrzuceniu skrajnych.
+  (bool, bool)? _irregularity(List<double> vals) {
+    const trim = 2;
+    final w = vals.length;
+    final sorted = [...vals]..sort();
+    final lo = sorted[trim], hi = sorted[w - 1 - trim];
+    final x = [for (final v in vals) if (v >= lo && v <= hi) v];
+    if (x.length < 16) return null;
+    final m = x.reduce((a, b) => a + b) / x.length;
+    var ss = 0.0;
+    for (var k = 1; k < x.length; k++) {
+      ss += (x[k] - x[k - 1]) * (x[k] - x[k - 1]);
+    }
+    final nrmssd = sqrt(ss / (x.length - 1)) / m;
+    if (nrmssd <= 0.06) return null;
+    var tp = 0;
+    for (var k = 1; k < x.length - 1; k++) {
+      if ((x[k] - x[k - 1]) * (x[k + 1] - x[k]) < 0) tp++;
+    }
+    final nn = x.length;
+    final mu = (2 * nn - 4) / 3, sd = sqrt((16 * nn - 29) / 90);
+    final dash = nrmssd > 0.1 && tp > mu - 2 * sd && tp < mu + 2 * sd && _shannon(x) > 0.6;
+    return (dash, _cosen(vals) > cfg.afCosen);
+  }
+
+  /// AF z odstępów RR samej opaski (H10 liczy je własnym detektorem, odpornym na zakłócenia EKG) – tylko tam,
+  /// gdzie EKG jest zbyt zakłócone (≥ 25% nieczytelnych pobudzeń w oknie), np. przy zakładaniu opaski.
+  /// Bez informacji o załamku P wymagane oba kryteria (Dash i COSEn).
+  void _afFromDeviceRr() {
+    final d = deviceRr;
+    if (d == null || d.length < 32 || !cfg.useDeviceRr) return;
+    const w = 32, step = 4;
+    for (var w0 = 0; w0 + w <= d.length; w0 += step) {
+      final from = d[w0].$1, to = d[w0 + w - 1].$1;
+      if (to <= from || (to - from) / fs > w * 2.5) continue; // przerwa w odstępach
+      final k0 = _beatAtOrAfter(from), k1 = _beatAtOrAfter(to);
+      if (k1 - k0 < w ~/ 2) continue;
+      var bad = 0;
+      for (var k = k0; k < k1; k++) {
+        if (labels[k] == BeatType.unknown || beatNoisy[k] == 1) bad++;
+      }
+      if (bad < 0.25 * (k1 - k0)) continue; // EKG czytelne – decyduje analiza EKG
+      final vals = [for (var k = w0; k < w0 + w; k++) d[k].$2 / 1000];
+      if (vals.any((v) => v < 0.25 || v > 2.5)) continue;
+      // Gubione/dodane uderzenia przy zakłóceniach dają odstępy ~2× i ~½ mediany – w AF rozkład jest ciągły
+      // (H10, AF 145/min: 0.8–1.6× mediany; artefakt 01:10: 2.1× i 0.35×).
+      final med = _median(vals);
+      if (vals.where((v) => v > 1.7 * med || v < 0.5 * med).length > 1) continue;
+      final irr = _irregularity(vals);
+      if (irr == null || !irr.$1 || !irr.$2) continue;
+      final a = w0 == 0 ? k0 : _beatAtOrAfter(d[w0 + w ~/ 4].$1);
+      final b = w0 + w + step > d.length ? k1 : _beatAtOrAfter(d[w0 + 3 * w ~/ 4].$1);
+      for (var k = a; k < min(n, b); k++) {
+        inAf[k] = 1;
+      }
+    }
+  }
+
+  int _beatAtOrAfter(int sample) {
+    var lo = 0, hi = n;
+    while (lo < hi) {
+      final mid = (lo + hi) >> 1;
+      if (r[mid] < sample) {
+        lo = mid + 1;
+      } else {
+        hi = mid;
+      }
+    }
+    return lo;
   }
 
   /// COSEn: SampEn(m=1, r=30 ms) + ln(2r) − ln(średni RR) [RR w sekundach].

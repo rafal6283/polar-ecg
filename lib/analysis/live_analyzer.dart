@@ -147,6 +147,21 @@ class LiveAnalyzer {
     _lastSampleTime = DateTime.now();
   }
 
+  /// Odstępy RR z opaski (własny detektor H10 – odporny na zakłócenia EKG); ostatni kończy się ~teraz.
+  final List<(int, double)> _devRr = [];
+
+  void addDeviceRr(List<double> rrMs) {
+    var end = _total.toDouble();
+    final tmp = <(int, double)>[];
+    for (var k = rrMs.length - 1; k >= 0; k--) {
+      tmp.add((end.round(), rrMs[k]));
+      end -= rrMs[k] * fs / 1000;
+    }
+    _devRr.addAll(tmp.reversed);
+    final oldest = _total - _ring.length;
+    _devRr.removeWhere((e) => e.$1 < oldest);
+  }
+
   /// Po zerwaniu połączenia sygnał nie jest ciągły – zaczynamy okno od nowa.
   void markGap() {
     _processed = _total;
@@ -174,7 +189,10 @@ class LiveAnalyzer {
             for (var w = 0; w * win < len; w++) _actByWin[((start + w * win) ~/ win) % _actByWin.length],
           ]);
     final res = analyzeEcg(window, Timeline(started, fs, [Segment(0, len, 0)]),
-            settings: _windowSettings, profile: profile, activity: act)
+            settings: _windowSettings,
+            profile: profile,
+            activity: act,
+            deviceRr: [for (final (smp, v) in _devRr) if (smp >= start && smp < end) (smp - start, v)])
         .result;
     final r = res.rPeaks;
 
@@ -239,6 +257,14 @@ class LiveAnalyzer {
     final afWas = afNow;
     afNow = r.isNotEmpty && res.inAf[r.length - 1] == 1;
     if (afNow && !afWas) events.add(LiveEvent(_timeOf(end), 'Podejrzenie migotania przedsionków', Severity.high));
+    // Epizod, który zaczął się i skończył między przeliczeniami (np. krótki napad albo rozpoznany dopiero po
+    // osiągnięciu minimalnego czasu, gdy już ustąpił) – też zgłaszamy, z czasem trwania.
+    if (!afNow && !afWas) {
+      for (final e in res.events) {
+        if (e.type != EventType.af || start + e.endSample < _processed) continue;
+        events.add(LiveEvent(_timeOf(start + e.startSample), 'Podejrzenie migotania przedsionków (${e.detail})', Severity.high));
+      }
+    }
     if (!afNow && afWas) events.add(LiveEvent(_timeOf(end), 'Koniec niemiarowości', Severity.low));
     if (events.length > 50) events.removeRange(0, events.length - 50);
 

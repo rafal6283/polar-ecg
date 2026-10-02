@@ -125,6 +125,7 @@ class AppController extends ChangeNotifier {
       if (m.rrMs.isNotEmpty) {
         lastRr = m.rrMs.last;
         _rrCtrl.add(m.rrMs);
+        live?.addDeviceRr(m.rrMs);
         _recentRr.addAll(m.rrMs);
         while (_recentRr.length > 30) {
           _recentRr.removeAt(0);
