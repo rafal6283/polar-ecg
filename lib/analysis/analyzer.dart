@@ -66,7 +66,7 @@ class AnalysisSettings {
     this.wanderLimit = 1.0,
     this.useDeviceRr = true,
     this.sGradual = 0.9,
-    this.afExtend = 1,
+    this.afExtend = 0, // v1.8: wyłączone – z nowym modelem ltafdb +17% fałszywych epizodów; RR opaski oznaczają całe okna
     this.vContext = 2, // DS2: VEB Se 85.8 -> 85.7, +P 91.8 -> 92.5; H10 noc: fałszywe V 152 -> 120
     this.noiseExclSec = 0.15,
     this.sPrematurity = 0.85,
@@ -920,6 +920,7 @@ class _Ctx {
   }
 
   late final Float64List _corrN = Float64List(n)..fillRange(0, n, double.nan);
+  late final Float64List _meanRr150 = _meanRr150Calc();
 
   /// Przedwczesne nadkomorowe: krótkie względem otoczenia LUB wyraźnie krótsze od poprzedniego
   /// odstępu z następującą dłuższą przerwą (odporne na niemiarowość zatokową).
@@ -1064,6 +1065,11 @@ class _Ctx {
       }
       final votes = (dash ? 1 : 0) + (cosen ? 1 : 0) + ((pAbsent ?? false) ? 1 : 0);
       final isAf = pAbsent == null ? (dash && cosen) : votes >= cfg.afVotes;
+      if (pAbsent == false) {
+        for (var b = idx[w0 + w ~/ 4]; b <= idx[w0 + 3 * w ~/ 4]; b++) {
+          _pPresent[b] = 1;
+        }
+      }
       if (!isAf) continue;
       // Środkowa połowa okna (dokładniejsze granice); przy brzegach zapisu – całe okno.
       final from = w0 == 0 ? idx[0] - 1 : idx[w0 + w ~/ 4];
@@ -1107,8 +1113,8 @@ class _Ctx {
       }
       i = j + 1;
     }
-    // Rozszerzenie tylko epizodów, które już spełniły próg długości (bez nowych krótkich epizodów).
-    if (cfg.afExtend > 0) _extendAf();
+    // Rozszerzenie tylko epizodów, które spełniły próg długości (bez nowych krótkich epizodów – ltafdb).
+    if (cfg.afExtend > 0) _extendAf(cfg.afMinSeconds);
   }
 
   /// Kryteria nieregularności okna odstępów RR [s]: (Dash i wsp. 2009, COSEn > afCosen); null, gdy rytm wyraźnie
@@ -1140,6 +1146,9 @@ class _Ctx {
   /// AF z odstępów RR samej opaski (H10 liczy je własnym detektorem, odpornym na zakłócenia EKG) – tylko tam,
   /// gdzie EKG jest zbyt zakłócone (≥ 25% nieczytelnych pobudzeń w oknie), np. przy zakładaniu opaski.
   /// Bez informacji o załamku P wymagane oba kryteria (Dash i COSEn).
+  /// Pobudzenia w oknach EKG z wyraźnymi załamkami P (głos „brak P” = nie).
+  late final Uint8List _pPresent = Uint8List(n);
+
   void _afFromDeviceRr() {
     final d = deviceRr;
     if (d == null || d.length < 32 || !cfg.useDeviceRr) return;
@@ -1155,7 +1164,12 @@ class _Ctx {
       for (var k = k0; k < k1; k++) {
         if (labels[k] == BeatType.unknown || beatNoisy[k] == 1 || labels[k] == BeatType.supraventricular) bad++;
       }
-      if (bad < 0.25 * (k1 - k0)) continue; // EKG czytelne, rytm N – decyduje analiza EKG
+      // EKG czytelne i z załamkami P (rytm zatokowy, np. częste pobudzenia S) – decyduje analiza EKG.
+      var withP = 0;
+      for (var k = k0; k < k1; k++) {
+        withP += _pPresent[k];
+      }
+      if (bad < 0.25 * (k1 - k0) && withP > 0.5 * (k1 - k0)) continue;
       final vals = [for (var k = w0; k < w0 + w; k++) d[k].$2 / 1000];
       if (vals.any((v) => v < 0.25 || v > 2.5)) continue;
       // Gubione/dodane uderzenia przy zakłóceniach dają odstępy ~2× i ~½ mediany – w AF rozkład jest ciągły
@@ -1164,18 +1178,21 @@ class _Ctx {
       if (vals.where((v) => v > 1.7 * med || v < 0.5 * med).length > 1) continue;
       final irr = _irregularity(vals);
       if (irr == null || !irr.$1 || !irr.$2) continue;
-      final a = w0 == 0 ? k0 : _beatAtOrAfter(d[w0 + w ~/ 4].$1);
-      final b = w0 + w + step > d.length ? k1 : _beatAtOrAfter(d[w0 + 3 * w ~/ 4].$1);
+      // Całe okno (nie środkowa połowa jak w EKG): RR opaski używane tylko przy zakłóconym EKG, gdzie granic
+      // i tak nie da się dokładnie wyznaczyć, a krótki napad nie powinien wypaść poniżej progu długości.
+      final a = k0, b = k1;
       for (var k = a; k < min(n, b); k++) {
         inAf[k] = 1;
       }
     }
   }
 
-  /// Rozszerzenie epizodu AF na sąsiednie uderzenia S/Q o podobnej częstości: początek/koniec napadu bywa
-  /// opisany jako seria S (okno 32 RR nie spełnia jeszcze kryteriów). Granica: pobudzenie V, ≥ 3 kolejne N
-  /// albo odstęp RR poza 0.5–1.8× mediany RR epizodu (np. wolniejszy rytm zatokowy).
-  void _extendAf() {
+  /// Rozszerzenie epizodu AF na sąsiednie uderzenia o podobnej częstości: początek/koniec napadu bywa poza
+  /// oknami 32 RR (opisany jako seria S albo N). Granica: pobudzenie V, odstęp RR poza 0.5–1.8× mediany RR
+  /// epizodu, 3 kolejne N, 4 kolejne miarowe odstępy (różnica < 6%) albo 3 kolejne uderzenia z załamkiem P
+  /// (korelacja P ≥ afPCorr) – rytm zatokowy; te uderzenia nie wchodzą do AF.
+  /// [minSec] – rozszerzane tylko epizody co najmniej tej długości.
+  void _extendAf(double minSec) {
     var i = 0;
     while (i < n) {
       if (inAf[i] == 0) {
@@ -1187,21 +1204,26 @@ class _Ctx {
         j++;
       }
       final rrs = [for (var k = i + 1; k <= j; k++) if (rr(k) > 0) rr(k).toDouble()];
-      if (rrs.length >= 8) {
+      if (rrs.length >= 8 && (r[j] - r[i]) / fs >= minSec) {
         final med = _median(rrs);
-        bool fits(int k) => rr(k) > 0 && rr(k) > 0.5 * med && rr(k) < 1.8 * med && seg[k] == seg[i];
+        bool fits(int k) => rr(k) > 0.5 * med && rr(k) < 1.8 * med && seg[k] == seg[i];
         for (final dir in [-1, 1]) {
-          var k = dir < 0 ? i - 1 : j + 1, nRun = 0;
+          var k = dir < 0 ? i - 1 : j + 1, regular = 0, withP = 0, nRun = 0;
           final add = <int>[];
-          while (k > 0 && k < n && inAf[k] == 0 && labels[k] != BeatType.ventricular && fits(dir < 0 ? k + 1 : k)) {
+          // RR „wewnątrz” kroku: przy cofaniu odstęp kończący się na k+1, przy przesuwaniu – na k.
+          int rrAt(int q) => dir < 0 ? q + 1 : q;
+          while (k > 0 && k < n - 1 && inAf[k] == 0 && labels[k] != BeatType.ventricular && fits(rrAt(k))) {
+            final a = rr(rrAt(k)), b = rr(rrAt(k) - 1);
+            regular = b > 0 && (a / b - 1).abs() < 0.06 ? regular + 1 : 0;
+            final pc = features?[k]?[10];
+            withP = pc != null && pc >= cfg.afPCorr ? withP + 1 : 0;
             nRun = labels[k] == BeatType.normal ? nRun + 1 : 0;
-            if (nRun >= 3) break;
             add.add(k);
+            if (regular >= 4 || withP >= 3 || nRun >= 3) {
+              add.length = max(0, add.length - max(regular >= 4 ? 4 : 0, max(withP >= 3 ? 3 : 0, nRun >= 3 ? 3 : 0)));
+              break;
+            }
             k += dir;
-          }
-          // Końcowe N (przed granicą) nie należą do epizodu.
-          while (add.isNotEmpty && labels[add.last] == BeatType.normal) {
-            add.removeLast();
           }
           if (add.length >= 3) {
             for (final q in add) {

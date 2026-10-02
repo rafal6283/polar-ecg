@@ -7,9 +7,28 @@ const beatFeatureNames = [
   'korelacja P', 'energia P', 'korelacja ST-T', 'przesunięcie ST-T', 'energia QRS', 'szum', 'korelacja z poprzednim', //
   'różnica 1', 'różnica 2', 'różnica 3', 'różnica 4', 'różnica 5', //
   'różnica 6', 'różnica 7', 'różnica 8', 'różnica 9', 'różnica 10',
+  'rr_pre/średni', 'rr_post/średni', // średnia (nie mediana) z ±150 odstępów – pauzy podnoszą średnią, więc
+  // pobudzenia S stanowiące większość rytmu (np. częste S z pauzami) nadal wyglądają na przedwczesne
 ];
 
 extension _BeatFeatures on _Ctx {
+  /// Średni odstęp RR (czyste, 0.25–3 s) w oknie ±150 pobudzeń.
+  Float64List _meanRr150Calc() {
+    final ok = [for (var i = 0; i < n; i++) i > 0 && cleanRr(i) && rr(i) > 0.25 * fs && rr(i) < 3 * fs];
+    final sum = Float64List(n + 1), cnt = Int32List(n + 1);
+    for (var i = 0; i < n; i++) {
+      sum[i + 1] = sum[i] + (ok[i] ? rr(i) : 0);
+      cnt[i + 1] = cnt[i] + (ok[i] ? 1 : 0);
+    }
+    final out = Float64List(n);
+    for (var i = 0; i < n; i++) {
+      final a = max(0, i - 150), b = min(n, i + 151);
+      final c = cnt[b] - cnt[a];
+      out[i] = c < 10 ? 0 : (sum[b] - sum[a]) / c;
+    }
+    return out;
+  }
+
   /// Szerokie okno pobudzenia: od -300 ms (załamek P) do +450 ms (załamek T).
   Float64List? _wideWindow(int i) {
     final s = tl.segments[seg[i]];
@@ -84,6 +103,9 @@ extension _BeatFeatures on _Ctx {
       out[13] = 0;
     }
     out[15] = safe(_noiseIdx[i] * 10, 0, 0, 5);
+    final m = _meanRr150[i];
+    out[27] = rr(i) > 0 && m > 0 ? safe(rr(i) / m, 1, 0, 4) : 1;
+    out[28] = i + 1 < n && rr(i + 1) > 0 && m > 0 ? safe(rr(i + 1) / m, 1, 0, 4) : 1;
     return out;
   }
 

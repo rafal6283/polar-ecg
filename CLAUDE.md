@@ -59,6 +59,14 @@ Użytek własny – nie jest to wyrób medyczny (licencja flutter_blue_plus: `Li
    Sp 97.9%, 56 fałszywych epizodów; ltafdb czas AF Se 91.7% Sp 93.1%, 582 fałszywe epizody (7.1/dobę; afExtend
    przed progiem długości dawał 635 – dlatego rozszerzane są tylko epizody ≥ afMinSeconds); SVT ltafdb Se 19.9%, +P 29.6%,
    19.7 fałszywych/dobę (było 18.9% / 18.1% / 37.4).
+   Wyniki v1.8.0 (nowy model: cechy rr_pre/średni i rr_post/średni z ±150 RR) na DS2: QRS 99.7/99.9,
+   VEB 83.1/94.6 (N→V 192 → 137), SVEB 11.0/69.8 (N→S 96 → 69), AF 99.9/92.9; afdb ECG1 Se 83.8% +P 96.4%
+   Sp 97.9%, 59 fałszywych epizodów; ltafdb czas AF Se 91.7% Sp 93.2%, 589 fałszywych epizodów; SVT mitdb
+   Se 62% +P 92%, 2.2 fałszywych/dobę (było 69% / 83% / 4.4); SVT ltafdb Se 17.3% +P 40.4%, 10.7 fałszywych/dobę
+   (było 19.9% / 29.6% / 19.7). Przeoczone S na DS2 to głównie rekord 232 (1165 z 1451: S stanowią rytm
+   podstawowy z pauzami – po RR nieodróżnialne od przyspieszonego rytmu zatokowego), S w odcinkach AF (210:
+   rekordy 202/210/219/222) i 234 (J w rytmie węzłowym); pojedyncze przedwczesne S (pre/lokalny < 0.9, poza AF,
+   bez 232) DS2 wykrywane w ~80%. Diagnoza: `tool/beat_dump.dart` (cechy i wyniki każdego pobudzenia do CSV).
    physionet.org bywa zablokowany w chmurze – mirror: https://physionet-open.s3.amazonaws.com/<baza>/1.0.0/
    (lista plików: `?list-type=2&prefix=<baza>/1.0.0/`). Inne bazy (pobierać poza repo):
    - AF: strojone na afdb (oba odprowadzenia), test na ltafdb (1961 h): czas AF Se 91.6% Sp 93.2%,
@@ -76,7 +84,9 @@ Użytek własny – nie jest to wyrób medyczny (licencja flutter_blue_plus: `Li
 ## Uczenie modelu
 `dart run tool/train_classifier.dart <mitdb> <cache_cech.json> [svdb=<katalog_svdb>]` – 4-krotna walidacja
 krzyżowa po pacjentach na DS1 (+ cała SVDB, ~12 min), wybór konfiguracji/epok/progów, zapis
-`lib/analysis/beat_model.g.dart`. Potem ocena na DS2. Model v1.2.0 uczony z svdb (aktualny).
+`lib/analysis/beat_model.g.dart`. Potem ocena na DS2. Model v1.8.0 (aktualny, 29 cech, DS1 + svdb, [32,16],
+tV 0.8, tS 0.8; OOF DS1: V 89.5/90.2, S 61.7/64.3 – poprzedni v1.2.0: V 94.6/85.1, S 68.7/35.6; kopia starego
+modelu nie jest w repo – w historii git). Cache cech zależy od zestawu cech – po zmianie cech nowy plik cache.
 Opcje: `incart=<katalog>` (odprowadzenia II i V5, foldy po pacjentach), `aug=1` (kopie z zakłóceniami
 typowymi dla opaski), `nKeep=0.35`; progi/epoki wybierane na OOF z DS1. Próba DS1+SVDB+INCART+aug (v1.3.0):
 DS2 VEB 87.0/86.2, SVEB 16.7/62.6 – odrzucona (więcej fałszywych V: N→V 372 vs 231).
@@ -110,6 +120,10 @@ DS2 VEB 87.0/86.2, SVEB 16.7/62.6 – odrzucona (więcej fałszywych V: N→V 37
   DS1 S Se 70.3 → 69.4 (rekord 209), +P bez zmian). `afExtend`: AF rozszerzane na sąsiednie uderzenia S/Q
   o RR 0.5–1.8× mediany epizodu (koniec: V lub 3 kolejne N) – napad 22:56 obejmuje teraz 22:56:00–22:56:46
   (wcześniej pierwsze 13 s jako SVT). AF z RR opaski liczy też uderzenia S jako „niepewne EKG”.
+- v1.8.0: nowy model (mniej fałszywych V w nocy: 23:00 26 → 6, 0:00 44 → 35). AF z RR opaski: pomijane tylko
+  okna, gdzie EKG czytelne (< 25% Q/S/szum) I z załamkami P (`_pPresent` z okien EKG z głosem „P obecne”);
+  okna RR opaski oznaczają AF na całej długości. `afExtend` = 0 (z nowym modelem ltafdb 691 fałszywych
+  epizodów zamiast 589). Napad: 22:56:10–22:56:46 (w dzienniku „trwał już przy rozpoczęciu zapisu”).
 
 ## Następne kroki (otwarte)
 - Więcej zapisów H10 z potwierdzonymi/oznaczonymi napadami AF; potwierdzić epizod 22:56 z użytkownikiem.

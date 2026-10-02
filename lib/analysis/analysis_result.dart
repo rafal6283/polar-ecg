@@ -87,7 +87,7 @@ class AnalysisStats {
 }
 
 class AnalysisResult {
-  static const version = 5; // 4: v1.3.0 – nowe zdarzenia (SVT, blok AV, ST); 5: v1.7.0 – S w tachykardii zatokowej, napady AF
+  static const version = 6; // 4: v1.3.0 – nowe zdarzenia; 5: v1.7.0 – S w tachykardii zatokowej, napady AF; 6: v1.8.0 – nowy model
 
   final Timeline timeline;
   final Int32List rPeaks;
