@@ -55,8 +55,9 @@ Użytek własny – nie jest to wyrób medyczny (licencja flutter_blue_plus: `Li
    odzyskowi uderzeń `rescueCorr` – tylko jako N, bez fałszywych V/S).
    Wyniki v1.6.0 na DS2: QRS 99.7/99.9, VEB 85.7/92.5, SVEB 11.7/59.0, AF 99.9/93.2; afdb ECG1 Se 83.7% +P 96.6%;
    ltafdb czas AF Se 91.6% Sp 93.2%, 7.1 fałszywych epizodów/dobę.
-   Wyniki v1.7.0 na DS2: QRS 99.7/99.9, VEB 85.7/92.5, SVEB 11.3/58.4, AF 99.9/93.2; afdb ECG1 Se 83.8% +P 96.4%
-   Sp 97.9%, 62 fałszywe epizody (było 56); ltafdb: walidacja afExtend w toku (wariant przed progiem długości: +10% fałszywych epizodów – przeniesiono za próg); SVT ltafdb Se 19.9%, +P 29.6%,
+   Wyniki v1.7.0 na DS2: QRS 99.7/99.9, VEB 85.7/92.5, SVEB 11.3/58.4, AF 99.9/93.2; afdb ECG1 Se 83.8% +P 96.5%
+   Sp 97.9%, 56 fałszywych epizodów; ltafdb czas AF Se 91.7% Sp 93.1%, 582 fałszywe epizody (7.1/dobę; afExtend
+   przed progiem długości dawał 635 – dlatego rozszerzane są tylko epizody ≥ afMinSeconds); SVT ltafdb Se 19.9%, +P 29.6%,
    19.7 fałszywych/dobę (było 18.9% / 18.1% / 37.4).
    physionet.org bywa zablokowany w chmurze – mirror: https://physionet-open.s3.amazonaws.com/<baza>/1.0.0/
    (lista plików: `?list-type=2&prefix=<baza>/1.0.0/`). Inne bazy (pobierać poza repo):
