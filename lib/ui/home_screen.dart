@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
@@ -230,8 +232,24 @@ class _ScanView extends StatelessWidget {
 
   VoidCallback _scan(BuildContext context) => () async {
         try {
-          if (await FlutterBluePlus.adapterState.first != BluetoothAdapterState.on) {
-            await FlutterBluePlus.turnOn();
+          // iOS: stan adaptera bywa na początku „unknown” – czekamy chwilę na właściwy; włączyć Bluetooth
+          // z aplikacji można tylko na Androidzie.
+          final state = await FlutterBluePlus.adapterState
+              .where((s) => s != BluetoothAdapterState.unknown)
+              .first
+              .timeout(const Duration(seconds: 3), onTimeout: () => BluetoothAdapterState.unknown);
+          if (state != BluetoothAdapterState.on) {
+            if (Platform.isAndroid) {
+              await FlutterBluePlus.turnOn();
+            } else {
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                    content: Text(state == BluetoothAdapterState.unauthorized
+                        ? 'Brak zgody na Bluetooth – Ustawienia → Polar EKG → Bluetooth'
+                        : 'Włącz Bluetooth (Centrum sterowania lub Ustawienia)')));
+              }
+              return;
+            }
           }
           await PolarH10.startScan();
         } catch (e) {

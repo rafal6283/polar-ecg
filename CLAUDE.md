@@ -134,4 +134,9 @@ DS2 VEB 87.0/86.2, SVEB 16.7/62.6 – odrzucona (więcej fałszywych V: N→V 37
 - Testy na telefonie użytkownika: połączenie w wersji release, akcelerometr (aktywność/pozycja),
   alarm testowy (pokazuje komunikat, gdy powiadomienia wyłączone), polskie znaki w PDF (Roboto w assets/fonts).
 - Budowanie APK w sesji chmurowej Claude wymaga dl.google.com (zablokowane) – używać GitHub Actions.
-- iOS: budowanie przez Codemagic (brak Maca), sideload.
+- iOS: `.github/workflows/ios.yml` (macos-15, `flutter build ios --release --no-codesign` → niepodpisany IPA
+  → Release `ios-v<wersja>-b<100+run>`, pre-release). Uruchamiane ręcznie albo push z „[ios]” w opisie commita
+  (minuty macOS ×10). Instalacja: AltStore/Sideloadly z Apple ID (darmowe konto: ważność 7 dni, odświeżanie;
+  płatne – rok). iOS: Bluetooth włączany przez użytkownika (FBP turnOn tylko Android), tło przez
+  bluetooth-central (bez usługi pierwszoplanowej), pliki zapisów widoczne w aplikacji Pliki (UIFileSharingEnabled).
+  Do sprawdzenia na iPhonie: połączenie, nagrywanie przy zablokowanym ekranie, powiadomienia, udostępnianie.
