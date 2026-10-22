@@ -34,7 +34,10 @@ na DS1, wybór konfiguracji/epok/progów, zapis `lib/analysis/beat_model.g.dart`
 - Flutter stable (3.47), Android SDK 36, NDK 28.2, desugaring włączony (flutter_local_notifications).
 - `android/gradle.properties`: `kotlin.incremental=false` (projekt i pub-cache na różnych dyskach na Windows).
 - `flutter build apk --release` (uniwersalny ~57 MB) lub `--split-per-abi --target-platform android-arm64` (~20 MB,
-  mieści się w limicie 30 MB przesyłania plików do użytkownika). Podpis kluczem debug (użytek własny).
+  mieści się w limicie 30 MB przesyłania plików do użytkownika). Podpis stałym kluczem z repo `android/app/polar-ecg.jks`
+  (użytek własny; bez pliku – klucz debug).
+- GitHub Actions (`.github/workflows/build.yml`): każdy push na `main` → analiza, testy (nie blokują), APK arm64
+  i uniwersalny w zakładce Releases.
 
 ## Następne kroki (otwarte)
 - Poprawa wykrywania pobudzeń nadkomorowych (S): douczenie modelu na MIT-BIH Supraventricular Arrhythmia DB
