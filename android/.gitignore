@@ -12,3 +12,6 @@ GeneratedPluginRegistrant.java
 key.properties
 **/*.keystore
 **/*.jks
+# Wyjątek: klucz podpisu prywatnej aplikacji (repo prywatne) – stały podpis dla CI i PC,
+# żeby kolejne wersje instalowały się jako aktualizacja bez utraty danych.
+!keystore/polar-ekg.jks

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -52,6 +53,8 @@ class Recorder {
     final r = Recorder._(dir, now, deviceName, deviceId, ecg, acc, rr, events);
     await r._writeMeta(null);
     r.addEvent('start');
+    // Punkt kontrolny co minutę: przy zamknięciu aplikacji / restarcie telefonu nagranie ma aktualne metadane.
+    r._checkpoint = Timer.periodic(const Duration(minutes: 1), (_) => r._saveCheckpoint());
     return r;
   }
 
@@ -105,7 +108,27 @@ class Recorder {
 
   Duration get elapsed => DateTime.now().difference(started);
 
+  Timer? _checkpoint;
+  bool _checkpointing = false;
+
+  Future<void> _saveCheckpoint() async {
+    if (_checkpointing) return;
+    _checkpointing = true;
+    try {
+      await Future.wait([_ecg.flush(), if (_acc != null) _acc.flush(), _rr.flush(), _events.flush()]);
+      await _writeMeta(null);
+    } catch (_) {
+      // Punkt kontrolny jest pomocniczy – błąd zapisu nie przerywa nagrywania.
+    } finally {
+      _checkpointing = false;
+    }
+  }
+
   Future<void> stop() async {
+    _checkpoint?.cancel();
+    while (_checkpointing) {
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+    }
     addEvent('stop');
     await _ecg.close();
     await _acc?.close();
@@ -122,6 +145,8 @@ class Recorder {
       'sample_rate_hz': ecgSampleRate,
       'unit': 'uV',
       'started': started.toIso8601String(),
+      'started_ms': started.millisecondsSinceEpoch, // jednoznaczny czas (meta 'started' jest lokalny, bez strefy)
+      'tz_offset_min': started.timeZoneOffset.inMinutes,
       if (ended != null) 'ended': ended.toIso8601String(),
       'ecg_samples': ecgSamples,
       'acc_samples': accSamples,

@@ -7,6 +7,8 @@ import 'analyzer.dart';
 import 'ecg_recording.dart';
 import 'personal_profile.dart';
 
+const contactEventLabel = 'Słaby kontakt elektrod – zwilż elektrody i popraw pasek';
+
 class LiveEvent {
   final DateTime time;
   final String label;
@@ -37,6 +39,15 @@ class LiveAnalyzer {
   final List<double> _rr8 = [];
   bool afNow = false;
   double qualityPct = 100; // % czytelnych pobudzeń w ostatnim oknie
+  static const poorQualityPct = 60.0;
+
+  /// Początek ciągłego słabego sygnału (zakłócenia, utrata kontaktu elektrod) – null, gdy sygnał dobry.
+  DateTime? get poorSince => _poorFrom == null ? null : _timeOf(_poorFrom!);
+  int? _poorFrom; // próbka (indeks bezwzględny)
+  bool _contactReported = false;
+
+  /// Sygnał zakłócony od ponad minuty – rytmu nie da się wiarygodnie ocenić.
+  bool get contactWarning => _poorFrom != null && _total - _poorFrom! >= 60 * fs;
   DateTime? lastV, lastS;
   final List<LiveEvent> events = [];
 
@@ -54,6 +65,9 @@ class LiveAnalyzer {
   late final Float32List _actByWin = Float32List(180 ~/ 2)..fillRange(0, 90, -1);
 
   LiveAnalyzer(this.fs, {this.settings = const AnalysisSettings(), this.profile});
+
+  /// W oknie 90 s nie ma stabilnego odniesienia dla ST – zmiany ST tylko w analizie całego zapisu.
+  late final AnalysisSettings _windowSettings = settings.copyWith({'stDevUv': 0});
 
   /// Poziom aktywności słownie.
   String? get activityLabel {
@@ -144,8 +158,24 @@ class LiveAnalyzer {
     _lastSampleTime = DateTime.now();
   }
 
+  /// Odstępy RR z opaski (własny detektor H10 – odporny na zakłócenia EKG); ostatni kończy się ~teraz.
+  final List<(int, double)> _devRr = [];
+
+  void addDeviceRr(List<double> rrMs) {
+    var end = _total.toDouble();
+    final tmp = <(int, double)>[];
+    for (var k = rrMs.length - 1; k >= 0; k--) {
+      tmp.add((end.round(), rrMs[k]));
+      end -= rrMs[k] * fs / 1000;
+    }
+    _devRr.addAll(tmp.reversed);
+    final oldest = _total - _ring.length;
+    _devRr.removeWhere((e) => e.$1 < oldest);
+  }
+
   /// Po zerwaniu połączenia sygnał nie jest ciągły – zaczynamy okno od nowa.
   void markGap() {
+    _poorFrom = null;
     _processed = _total;
     _lastBeat = _total;
   }
@@ -171,7 +201,10 @@ class LiveAnalyzer {
             for (var w = 0; w * win < len; w++) _actByWin[((start + w * win) ~/ win) % _actByWin.length],
           ]);
     final res = analyzeEcg(window, Timeline(started, fs, [Segment(0, len, 0)]),
-            settings: settings, profile: profile, activity: act)
+            settings: _windowSettings,
+            profile: profile,
+            activity: act,
+            deviceRr: [for (final (smp, v) in _devRr) if (smp >= start && smp < end) (smp - start, v)])
         .result;
     final r = res.rPeaks;
 
@@ -218,6 +251,16 @@ class LiveAnalyzer {
       }
     }
     qualityPct = inWindow == 0 ? 0 : 100 * clean / inWindow;
+    if (qualityPct < poorQualityPct) {
+      _poorFrom ??= max(start, end - fs * 30);
+      if (contactWarning && !_contactReported) {
+        _contactReported = true;
+        events.add(LiveEvent(poorSince!, contactEventLabel, Severity.low));
+      }
+    } else {
+      _poorFrom = null;
+      _contactReported = false;
+    }
     double? stat(String k) => res.stats[k]?.toDouble();
     if (stat('qrs_ms') != null) {
       qrsMs = stat('qrs_ms');
@@ -236,6 +279,14 @@ class LiveAnalyzer {
     final afWas = afNow;
     afNow = r.isNotEmpty && res.inAf[r.length - 1] == 1;
     if (afNow && !afWas) events.add(LiveEvent(_timeOf(end), 'Podejrzenie migotania przedsionków', Severity.high));
+    // Epizod, który zaczął się i skończył między przeliczeniami (np. krótki napad albo rozpoznany dopiero po
+    // osiągnięciu minimalnego czasu, gdy już ustąpił) – też zgłaszamy, z czasem trwania.
+    if (!afNow && !afWas) {
+      for (final e in res.events) {
+        if (e.type != EventType.af || start + e.endSample < _processed) continue;
+        events.add(LiveEvent(_timeOf(start + e.startSample), 'Podejrzenie migotania przedsionków (${e.detail})', Severity.high));
+      }
+    }
     if (!afNow && afWas) events.add(LiveEvent(_timeOf(end), 'Koniec niemiarowości', Severity.low));
     if (events.length > 50) events.removeRange(0, events.length - 50);
 

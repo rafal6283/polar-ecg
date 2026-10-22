@@ -38,6 +38,9 @@ class BinaryStreamWriter {
     _sink.add(b.buffer.asUint8List());
   }
 
+  /// Zapis buforowanych ramek na dysk (punkt kontrolny w trakcie nagrywania).
+  Future<void> flush() => _sink.flush();
+
   Future<void> close() async {
     await _sink.flush();
     await _sink.close();

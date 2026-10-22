@@ -1,10 +1,16 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../alarms/alarm_service.dart';
 import '../analysis/analyzer.dart';
 import '../analysis/personal_profile.dart';
 import '../settings/app_settings.dart';
+import 'backup_actions.dart';
+import 'legend_screen.dart';
+import 'theme/app_theme.dart';
 
 class SettingsScreen extends StatelessWidget {
   final AppSettings settings;
@@ -22,7 +28,8 @@ class SettingsScreen extends StatelessWidget {
           final s = settings;
           Future<void> set(void Function(AppSettings) f) => s.update(f);
           return ListView(
-            children: [
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 24),
+            children: _sectioned([
               const _Header('Osoba'),
               ListTile(
                 title: const Text('Imię i nazwisko'),
@@ -64,6 +71,7 @@ class SettingsScreen extends StatelessWidget {
                 value: s.accEnabled,
                 onChanged: (v) => set((x) => x.accEnabled = v),
               ),
+              const _BackgroundTile(),
 
               const _Header('Analiza'),
               _SliderTile('Pauza od', s.pauseSeconds, 1.5, 5, 0.5, 's', (v) => set((x) => x.pauseSeconds = v), digits: 1),
@@ -113,6 +121,13 @@ class SettingsScreen extends StatelessWidget {
                   value: s.alarmVt,
                   onChanged: (v) => set((x) => x.alarmVt = v ?? true),
                 ),
+                CheckboxListTile(
+                  title: const Text('Słaby kontakt elektrod'),
+                  subtitle: const Text('Sygnał zakłócony dłużej niż minutę – rytmu nie da się wtedy ocenić (bez dźwięku, '
+                      'najwyżej co 30 min)'),
+                  value: s.alarmContact,
+                  onChanged: (v) => set((x) => x.alarmContact = v ?? true),
+                ),
                 SwitchListTile(title: const Text('Dźwięk'), value: s.alarmSound, onChanged: (v) => set((x) => x.alarmSound = v)),
                 SwitchListTile(
                     title: const Text('Wibracja'), value: s.alarmVibrate, onChanged: (v) => set((x) => x.alarmVibrate = v)),
@@ -125,23 +140,45 @@ class SettingsScreen extends StatelessWidget {
                       icon: const Icon(Icons.notifications_active_outlined),
                       label: const Text('Testuj alarm'),
                       onPressed: () async {
+                        final messenger = ScaffoldMessenger.of(context);
                         await alarms!.init();
-                        await alarms!.test();
+                        final problem = await alarms!.test();
+                        messenger.showSnackBar(SnackBar(content: Text(problem ?? 'Wysłano alarm próbny')));
                       },
                     ),
                   ),
               ],
 
+              const _Header('Dane'),
+              ListTile(
+                leading: const Icon(Icons.cloud_upload_outlined),
+                title: const Text('Kopia zapasowa'),
+                subtitle: const Text('Wszystkie zapisy, profil osobisty, pomiary poranne i ustawienia w jednym pliku ZIP '
+                    '– zapisz na Dysku Google, wyślij e-mailem lub na komputer.'),
+                onTap: () => backupAll(context),
+              ),
+              ListTile(
+                leading: const Icon(Icons.settings_backup_restore),
+                title: const Text('Przywróć z kopii'),
+                subtitle: const Text('Dodaje brakujące zapisy (istniejących nie nadpisuje).'),
+                onTap: () => restoreBackup(context),
+              ),
               const _Header('Informacje'),
               ListTile(
                 title: const Text('Klasyfikator pobudzeń'),
                 subtitle: Text(beatModel == null
                     ? 'reguły (model niedostępny)'
-                    : 'sieć neuronowa, uczona na ${beatModel!.meta['trainBeats']?.round()} pobudzeniach (MIT-BIH DS1); '
-                        'test na DS2: V – czułość 85%, trafność 87%; migotanie – czułość 97%, swoistość 95%'),
+                    : 'sieć neuronowa, uczona na ${beatModel!.meta['trainBeats']?.round()} pobudzeniach (MIT-BIH DS1 + SVDB); '
+                        'test na DS2: V – czułość 86%, trafność 91%; S – czułość 12%, trafność 59%; '
+                        'migotanie (2000 h zapisów dobowych) – czułość 92%, swoistość 93%'),
               ),
-              const SizedBox(height: 24),
-            ],
+              ListTile(
+                leading: const Icon(Icons.menu_book_outlined),
+                title: const Text('Legenda i opis pojęć'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const LegendScreen())),
+              ),
+            ]),
           );
         },
       ),
@@ -188,6 +225,28 @@ class SettingsScreen extends StatelessWidget {
   }
 }
 
+/// Grupuje kafelki między nagłówkami [_Header] w karty (wygląd „ustawień systemowych”).
+List<Widget> _sectioned(List<Widget> items) {
+  final out = <Widget>[];
+  var group = <Widget>[];
+  void flush() {
+    if (group.isEmpty) return;
+    out.add(Card(child: Column(children: group)));
+    group = <Widget>[];
+  }
+
+  for (final w in items) {
+    if (w is _Header) {
+      flush();
+      out.add(SectionLabel(w.text));
+    } else {
+      group.add(w);
+    }
+  }
+  flush();
+  return out;
+}
+
 class _Header extends StatelessWidget {
   final String text;
   const _Header(this.text);
@@ -218,4 +277,69 @@ class _SliderTile extends StatelessWidget {
           onChanged: onChanged,
         ),
       );
+}
+
+/// Praca w tle: wyłączona optymalizacja baterii (Android), żeby system nie przerywał nocnego zapisu.
+class _BackgroundTile extends StatefulWidget {
+  const _BackgroundTile();
+
+  @override
+  State<_BackgroundTile> createState() => _BackgroundTileState();
+}
+
+class _BackgroundTileState extends State<_BackgroundTile> with WidgetsBindingObserver {
+  bool? _ignoring;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _check();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  // Po powrocie z ustawień systemu – odśwież stan.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _check();
+  }
+
+  Future<void> _check() async {
+    if (!Platform.isAndroid) return;
+    try {
+      final v = await FlutterForegroundTask.isIgnoringBatteryOptimizations;
+      if (mounted) setState(() => _ignoring = v);
+    } catch (_) {}
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!Platform.isAndroid) return const SizedBox.shrink();
+    final colors = AppColors.of(context);
+    final ok = _ignoring == true;
+    return ListTile(
+      leading: Icon(ok ? Icons.battery_full : Icons.battery_alert, color: ok ? colors.ok : colors.warning),
+      title: const Text('Praca w tle (długie zapisy)'),
+      subtitle: Text(ok
+          ? 'Optymalizacja baterii wyłączona – system nie powinien przerywać zapisu. Na niektórych telefonach '
+              '(Xiaomi, Huawei, Samsung) sprawdź też autostart i „aplikacje bez ograniczeń”.'
+          : 'Optymalizacja baterii włączona – system może przerwać nocny zapis. Wyłącz ją dla Polar EKG.'),
+      isThreeLine: true,
+      trailing: ok
+          ? null
+          : TextButton(
+              onPressed: () async {
+                await FlutterForegroundTask.requestIgnoreBatteryOptimization();
+                await _check();
+              },
+              child: const Text('NAPRAW'),
+            ),
+      onTap: ok ? FlutterForegroundTask.openIgnoreBatteryOptimizationSettings : null,
+    );
+  }
 }

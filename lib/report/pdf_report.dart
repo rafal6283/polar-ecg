@@ -5,9 +5,15 @@ import 'dart:typed_data';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 
+import '../analysis/af_episodes.dart';
 import '../analysis/analysis_result.dart';
+import '../analysis/confidence.dart';
+import '../analysis/hrv_session.dart';
 import '../analysis/reference_ranges.dart';
+import '../analysis/rhythm_at.dart';
 import '../recording/markers.dart';
+
+part 'summary_report.dart';
 
 /// Dane osoby do nagłówka raportu.
 class ReportPerson {
@@ -25,8 +31,11 @@ Future<Uint8List> buildPdfReport({
   List<SymptomMarker> markers = const [],
   ReportPerson person = const ReportPerson(),
   String? deviceName,
+  (Uint8List regular, Uint8List bold)? fontData, // czcionka dołączona do aplikacji (assets/fonts)
 }) async {
-  final fonts = await _loadFonts();
+  final fonts = fontData != null
+      ? (pw.Font.ttf(ByteData.sublistView(fontData.$1)), pw.Font.ttf(ByteData.sublistView(fontData.$2)))
+      : await _loadFonts();
   String tx(String s) => fonts == null ? _ascii(s) : s;
   final doc = pw.Document(
     theme: fonts == null ? null : pw.ThemeData.withFont(base: fonts.$1, bold: fonts.$2),
@@ -45,23 +54,49 @@ Future<Uint8List> buildPdfReport({
   }
 
   const red = PdfColor.fromInt(0xFFC62828);
-  final small = const pw.TextStyle(fontSize: 8);
-  final h2 = pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold);
-  pw.Widget section(String title) =>
-      pw.Padding(padding: const pw.EdgeInsets.only(top: 10, bottom: 4), child: pw.Text(tx(title), style: h2));
+  final small = const pw.TextStyle(fontSize: 8, color: _grey);
+  pw.Widget section(String title) => pw.Container(
+        width: double.infinity,
+        margin: const pw.EdgeInsets.only(top: 14, bottom: 6),
+        padding: const pw.EdgeInsets.only(bottom: 3),
+        decoration: const pw.BoxDecoration(border: pw.Border(bottom: pw.BorderSide(color: _navy, width: 0.8))),
+        child: pw.Text(tx(title).toUpperCase(),
+            style: pw.TextStyle(fontSize: 10.5, fontWeight: pw.FontWeight.bold, color: _navy, letterSpacing: 0.8)),
+      );
+  // Nagłówek sekcji razem z treścią o stałej wysokości (nie rozdzielane między strony).
+  // (Row – poziomy Flex – nie dzieli się między strony, w przeciwieństwie do Column.)
+  pw.Widget keep(List<pw.Widget> children) => pw.Row(children: [
+        pw.Expanded(child: pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: children)),
+      ]);
+  final conf = AnalysisConfidence.of(a);
+  final confColor = switch (conf.level) {
+    ConfidenceLevel.high => PdfColors.green800,
+    ConfidenceLevel.medium => PdfColors.orange800,
+    ConfidenceLevel.low => red,
+  };
 
   // Wybór fragmentów EKG: objawy, zdarzenia (od najpoważniejszych), przykład rytmu podstawowego.
   final strips = <(int, String)>[];
   for (final m in markers) {
     if (m.sample >= 0) strips.add((m.sample, 'Objaw: ${m.label} (${clock(m.time)})'));
   }
+  // Początek i koniec napadów AF (najdłuższe 3) – lekarz ocenia sposób rozpoczęcia i zakończenia napadu.
+  final episodes = afEpisodes(a);
+  final afLongest = [...episodes]..sort((x, y) => y.duration.compareTo(x.duration));
+  for (final e in afLongest.take(3)) {
+    if (!e.fromStart) strips.add((e.startSample, 'Początek napadu AF (${clock(e.start)})'));
+    if (!e.toEnd && e.endSample - e.startSample > 10 * a.sampleRate) {
+      strips.add((e.endSample, 'Koniec napadu AF (${clock(e.end)})'));
+    }
+  }
+  final maxStrips = 8 + strips.length;
   final evSorted = [...a.events]..sort((x, y) => y.severity.index.compareTo(x.severity.index));
   for (final e in evSorted) {
-    if (strips.length >= 8) break;
+    if (strips.length >= min(maxStrips, 12)) break;
     if (strips.any((st) => (st.$1 - e.startSample).abs() < 10 * a.sampleRate)) continue;
     strips.add((e.startSample, '${e.type.label} ${e.detail} (${clock(tl.timeOf(e.startSample))})'));
   }
-  if (strips.length < 8) {
+  if (strips.length < min(maxStrips, 12)) {
     final vIdx = [for (var i = 0; i < a.labels.length; i++) if (a.labels[i] == BeatType.ventricular) i];
     if (vIdx.isNotEmpty) {
       final k = vIdx.first;
@@ -80,20 +115,59 @@ Future<Uint8List> buildPdfReport({
     pageFormat: PdfPageFormat.a4,
     margin: const pw.EdgeInsets.all(15 * PdfPageFormat.mm),
     footer: (ctx) => pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, children: [
-      pw.Text(tx('Analiza automatyczna z jednego odprowadzenia (Polar H10). Nie jest diagnozą.'), style: small),
+      pw.Text(tx('Polar EKG · analiza automatyczna z jednego odprowadzenia – nie jest diagnozą lekarską.'), style: small),
       pw.Text('${ctx.pageNumber}/${ctx.pagesCount}', style: small),
     ]),
     build: (ctx) => [
-      pw.Text(tx('Raport EKG – zapis z opaski piersiowej'), style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold)),
-      pw.SizedBox(height: 4),
-      pw.Text(tx([
-        if (person.name.isNotEmpty) person.name,
-        if (person.age != null) 'wiek ${person.age}',
-        if (person.sex == 'M') 'mężczyzna' else if (person.sex == 'K') 'kobieta',
-      ].join(', '))),
-      pw.Text(tx('Zapis: ${date(tl.started)}, ${clock(tl.started)} · czas ${dur(s['duration_s'])} '
-          '(analizowane ${dur(s['analyzed_s'])})${deviceName == null ? '' : ' · $deviceName'}')),
-      pw.Text(tx('Jedno odprowadzenie piersiowe, 130 Hz. Wydruk EKG: 25 mm/s, 10 mm/mV.'), style: small),
+      _header(tx),
+      pw.SizedBox(height: 10),
+      pw.Row(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
+        pw.Expanded(
+          child: _infoBox(tx, 'Osoba', [
+            person.name.isEmpty ? 'nie podano' : person.name,
+            [
+              if (person.age != null) 'wiek ${person.age}',
+              if (person.sex == 'M') 'mężczyzna' else if (person.sex == 'K') 'kobieta',
+            ].join(', '),
+          ]),
+        ),
+        pw.SizedBox(width: 8),
+        pw.Expanded(
+          flex: 2,
+          child: _infoBox(tx, 'Zapis', [
+            '${date(tl.started)}, początek ${clock(tl.started)} · czas ${dur(s['duration_s'])} '
+                '(analizowane ${dur(s['analyzed_s'])})',
+            '${deviceName ?? 'Polar H10'} · jedno odprowadzenie piersiowe, 130 Hz · wydruk 25 mm/s, 10 mm/mV',
+          ]),
+        ),
+      ]),
+      pw.SizedBox(height: 6),
+      pw.Container(
+        padding: const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: pw.BoxDecoration(
+            border: pw.Border(left: pw.BorderSide(color: confColor, width: 3)), color: PdfColors.grey100),
+        child: pw.RichText(
+          text: pw.TextSpan(style: const pw.TextStyle(fontSize: 8.5), children: [
+            pw.TextSpan(text: tx('Wiarygodność analizy: ')),
+            pw.TextSpan(text: tx(conf.level.label), style: pw.TextStyle(color: confColor, fontWeight: pw.FontWeight.bold)),
+            if (conf.reasons.isNotEmpty) pw.TextSpan(text: tx(' – ${conf.reasons.join('; ')}')),
+          ]),
+        ),
+      ),
+      pw.SizedBox(height: 10),
+      pw.Row(children: [
+        for (final (i, k) in [
+          ('Tętno średnie', '${num0(s['hr_mean'])} /min', '${num0(s['hr_min'])}–${num0(s['hr_max'])} /min'),
+          ('Pobudzenia V', num0(s['v']), '${num0(s['v_per_h'], 1)} /h'),
+          ('Pobudzenia S', num0(s['s']), '${num0(s['s_per_h'], 1)} /h'),
+          ('Migotanie (AF)', '${num0(s['af_burden_pct'], 1)} %', 'czasu zapisu'),
+          ('Najdłuższa pauza', s['longest_pause_s'] == null ? '–' : '${num0(s['longest_pause_s'], 1)} s',
+              s['longest_pause_s'] == null ? 'brak > 2 s' : 'najdłuższa'),
+        ].indexed) ...[
+          if (i > 0) pw.SizedBox(width: 6),
+          pw.Expanded(child: _kpi(tx, k.$1, k.$2, k.$3)),
+        ],
+      ]),
 
       section('Podsumowanie'),
       _table(tx, [
@@ -132,9 +206,19 @@ Future<Uint8List> buildPdfReport({
         if (a.template != null) pw.Expanded(flex: 2, child: _templateWidget(a)),
       ]),
 
-      if (markers.isNotEmpty) ...[
-        section('Zgłoszone objawy'),
-        _table(tx, [for (final m in markers) [clock(m.time), m.label]], header: ['Godzina', 'Objaw']),
+      if (markers.isNotEmpty && markers.length <= 15)
+        keep([section('Zgłoszone objawy a rytm'), _symptomTable(a, markers, tx, clock)])
+      else if (markers.isNotEmpty) ...[
+        section('Zgłoszone objawy a rytm'),
+        _symptomTable(a, markers, tx, clock),
+      ],
+
+      if (episodes.isNotEmpty) ...[
+        section('Napady migotania przedsionków (${episodes.length})'),
+        _afTable(episodes, tx, clock),
+        pw.SizedBox(height: 2),
+        pw.Text(tx('Okoliczności: tętno, ruch (akcelerometr) i pobudzenia dodatkowe w 5 min przed napadem.'),
+            style: small),
       ],
 
       section('Zdarzenia (${a.events.length})'),
@@ -151,16 +235,16 @@ Future<Uint8List> buildPdfReport({
         ], header: ['Godzina', 'Zdarzenie', 'Szczegóły', 'Waga']),
       if (a.events.length > 40) pw.Text(tx('… i ${a.events.length - 40} kolejnych'), style: small),
 
-      section('Tętno w czasie zapisu'),
-      _hrTrend(a),
+      keep([section('Tętno w czasie zapisu'), _hrTrend(a, markers, tx)]),
 
-      section('Fragmenty EKG'),
-      for (final (sample, title) in strips) ...[
-        pw.Text(tx(title), style: const pw.TextStyle(fontSize: 9)),
-        pw.SizedBox(height: 2),
-        _strip(a, signal, sample),
-        pw.SizedBox(height: 6),
-      ],
+      for (final (i, (sample, title)) in strips.indexed)
+        keep([
+          if (i == 0) section('Fragmenty EKG'),
+          pw.Text(tx(title), style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold)),
+          pw.SizedBox(height: 2),
+          _strip(a, signal, sample),
+          pw.SizedBox(height: 8),
+        ]),
       pw.SizedBox(height: 8),
       pw.Text(
           tx('Oznaczenia: N – prawidłowe, S – nadkomorowe, V – komorowe, Q – nieczytelne, A – w migotaniu. '
@@ -172,15 +256,136 @@ Future<Uint8List> buildPdfReport({
   return doc.save();
 }
 
+const _navy = PdfColor.fromInt(0xFF0B4F6C);
+const _navyLight = PdfColor.fromInt(0xFFE3EEF3);
+const _ecgRed = PdfColor.fromInt(0xFFD7263D);
+const _grey = PdfColor.fromInt(0xFF5F6B70);
+
+/// Objawy z opisem rytmu w ±30 s.
+pw.Widget _symptomTable(
+    AnalysisResult a, List<SymptomMarker> markers, String Function(String) tx, String Function(DateTime) clock,
+    {String Function(DateTime)? date}) {
+  return _table(tx, [
+    for (final m in markers)
+      [
+        date == null ? clock(m.time) : '${date(m.time)} ${clock(m.time)}',
+        m.label,
+        m.sample < 0 ? 'poza zapisem' : rhythmAt(a, m.sample).text,
+      ],
+  ], header: ['Czas', 'Objaw', 'Rytm w tej chwili (±30 s)']);
+}
+
+/// Tabela napadów AF z okolicznościami.
+pw.Widget _afTable(List<AfEpisode> eps, String Function(String) tx, String Function(DateTime) clock,
+    {String Function(DateTime)? date}) {
+  String dur(Duration d) => d.inMinutes >= 60
+      ? '${d.inHours} h ${d.inMinutes % 60} min'
+      : d.inSeconds >= 60
+          ? '${d.inMinutes} min ${d.inSeconds % 60} s'
+          : '${d.inSeconds} s';
+  return _table(tx, [
+    for (final e in eps)
+      [
+        date == null ? clock(e.start) : '${date(e.start)} ${clock(e.start)}',
+        dur(e.duration),
+        '${e.hrMean.round()} / ${e.hrMax.round()}',
+        e.hrBefore == null ? '–' : '${e.hrBefore!.round()}',
+        [if (e.confirmed) 'potwierdzony', ...e.circumstances].join(', '),
+      ],
+  ], header: ['Początek', 'Czas', 'Tętno śr./maks.', 'Tętno przed', 'Okoliczności']);
+}
+
 pw.Widget _table(String Function(String) tx, List<List<String>> rows, {List<String>? header}) =>
     pw.TableHelper.fromTextArray(
       headers: header?.map(tx).toList(),
       data: [for (final r in rows) r.map(tx).toList()],
       cellStyle: const pw.TextStyle(fontSize: 9),
-      headerStyle: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold),
-      cellPadding: const pw.EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-      border: const pw.TableBorder(horizontalInside: pw.BorderSide(width: 0.3, color: PdfColors.grey400)),
-      headerDecoration: const pw.BoxDecoration(color: PdfColors.grey200),
+      headerStyle: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold, color: _navy),
+      cellPadding: const pw.EdgeInsets.symmetric(horizontal: 5, vertical: 2.5),
+      border: const pw.TableBorder(horizontalInside: pw.BorderSide(width: 0.3, color: PdfColors.grey300)),
+      headerDecoration: const pw.BoxDecoration(color: _navyLight),
+      oddRowDecoration: const pw.BoxDecoration(color: PdfColor.fromInt(0xFFF7F9FA)),
+    );
+
+/// Pasek tytułowy: logo (serce z EKG) i nazwa raportu.
+pw.Widget _header(String Function(String) tx,
+        {String title = 'Raport EKG', String subtitle = 'Zapis z opaski piersiowej Polar H10 – analiza rytmu i przebiegu'}) =>
+    pw.Container(
+      padding: const pw.EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: const pw.BoxDecoration(color: _navy, borderRadius: pw.BorderRadius.all(pw.Radius.circular(6))),
+      child: pw.Row(children: [
+        pw.Container(
+          width: 30,
+          height: 30,
+          decoration: const pw.BoxDecoration(color: PdfColors.white, borderRadius: pw.BorderRadius.all(pw.Radius.circular(7))),
+          child: pw.CustomPaint(size: const PdfPoint(30, 30), painter: _paintLogo),
+        ),
+        pw.SizedBox(width: 10),
+        pw.Expanded(
+          child: pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
+            pw.Text(tx(title),
+                style: pw.TextStyle(fontSize: 17, fontWeight: pw.FontWeight.bold, color: PdfColors.white)),
+            pw.Text(tx(subtitle),
+                style: const pw.TextStyle(fontSize: 9, color: PdfColor.fromInt(0xFFCFE3EC))),
+          ]),
+        ),
+        pw.Text(tx('Polar EKG'), style: pw.TextStyle(fontSize: 9, color: PdfColors.white, fontWeight: pw.FontWeight.bold)),
+      ]),
+    );
+
+/// Logo w kwadracie 30 pt (układ PDF: oś Y w górę).
+void _paintLogo(PdfGraphics c, PdfPoint size) {
+  final w = size.x, h = size.y;
+  double x(double v) => 5 + v * (w - 10);
+  double y(double v) => h - (6 + v * (h - 11)); // v=0 góra serca
+  c
+    ..setFillColor(_ecgRed)
+    ..moveTo(x(0.5), y(0.93))
+    ..curveTo(x(0.18), y(0.70), x(0.0), y(0.50), x(0.0), y(0.30))
+    ..curveTo(x(0.0), y(0.12), x(0.15), y(0.0), x(0.30), y(0.0))
+    ..curveTo(x(0.40), y(0.0), x(0.47), y(0.05), x(0.5), y(0.14))
+    ..curveTo(x(0.53), y(0.05), x(0.60), y(0.0), x(0.70), y(0.0))
+    ..curveTo(x(0.85), y(0.0), x(1.0), y(0.12), x(1.0), y(0.30))
+    ..curveTo(x(1.0), y(0.50), x(0.82), y(0.70), x(0.5), y(0.93))
+    ..closePath()
+    ..fillPath();
+  const pts = [
+    (0.0, 0.52), (0.30, 0.52), (0.40, 0.60), (0.50, 0.18), (0.58, 0.76), (0.66, 0.52), (1.0, 0.52),
+  ];
+  c
+    ..setStrokeColor(PdfColors.white)
+    ..setLineWidth(1.6)
+    ..setLineJoin(PdfLineJoin.round)
+    ..setLineCap(PdfLineCap.round);
+  for (final (i, p) in pts.indexed) {
+    i == 0 ? c.moveTo(x(p.$1), y(p.$2)) : c.lineTo(x(p.$1), y(p.$2));
+  }
+  c.strokePath();
+}
+
+pw.Widget _infoBox(String Function(String) tx, String title, List<String> lines) => pw.Container(
+      padding: const pw.EdgeInsets.all(7),
+      decoration: pw.BoxDecoration(
+          border: pw.Border.all(color: PdfColors.grey300, width: 0.6),
+          borderRadius: const pw.BorderRadius.all(pw.Radius.circular(5))),
+      child: pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
+        pw.Text(tx(title).toUpperCase(),
+            style: pw.TextStyle(fontSize: 7.5, color: _navy, fontWeight: pw.FontWeight.bold, letterSpacing: 0.8)),
+        pw.SizedBox(height: 2),
+        for (final (i, l) in lines.where((l) => l.isNotEmpty).indexed)
+          pw.Text(tx(l), style: pw.TextStyle(fontSize: i == 0 ? 10 : 8.5, fontWeight: i == 0 ? pw.FontWeight.bold : null)),
+      ]),
+    );
+
+pw.Widget _kpi(String Function(String) tx, String label, String value, String sub) => pw.Container(
+      padding: const pw.EdgeInsets.fromLTRB(7, 6, 7, 6),
+      decoration: const pw.BoxDecoration(color: _navyLight, borderRadius: pw.BorderRadius.all(pw.Radius.circular(5))),
+      child: pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
+        pw.Text(tx(label), style: const pw.TextStyle(fontSize: 7.5, color: _grey)),
+        pw.SizedBox(height: 1),
+        pw.Text(tx(value), style: pw.TextStyle(fontSize: 13, fontWeight: pw.FontWeight.bold, color: _navy)),
+        pw.Text(tx(sub), style: const pw.TextStyle(fontSize: 7.5, color: _grey)),
+      ]),
     );
 
 const _gridMinor = PdfColor.fromInt(0xFFF6D3CC);
@@ -308,52 +513,191 @@ pw.Widget _templateWidget(AnalysisResult a) {
 }
 
 /// Tętno minutowe w czasie zapisu.
-pw.Widget _hrTrend(AnalysisResult a) {
+/// Tętno w czasie zapisu: średnia (linia) i zakres min–maks (pasmo) w przedziałach 1 min (do 2 h) albo 5 min;
+/// oś czasu w godzinach zegarowych, pasy AF, znaczniki zdarzeń wysokiej wagi i objawów, pasek aktywności (ACC).
+pw.Widget _hrTrend(AnalysisResult a, List<SymptomMarker> markers, String Function(String) tx) {
   final fs = a.sampleRate;
-  final perMin = <int, List<double>>{};
+  final totalSec = a.timeline.totalDuration.inSeconds;
+  final binSec = totalSec <= 2 * 3600 ? 60 : 300;
+  final bins = <int, List<double>>{};
   for (var k = 1; k < a.rPeaks.length; k++) {
     if (a.labels[k] == BeatType.unknown || a.labels[k - 1] == BeatType.unknown) continue;
     final rr = (a.rPeaks[k] - a.rPeaks[k - 1]) / fs;
-    if (rr > 3) continue;
-    perMin.putIfAbsent(a.timeline.offsetOf(a.rPeaks[k]).inMinutes, () => []).add(rr);
+    if (rr > 3 || rr < 0.25) continue;
+    bins.putIfAbsent(a.timeline.offsetOf(a.rPeaks[k]).inSeconds ~/ binSec, () => []).add(60 / rr);
   }
-  final pts = perMin.entries
-      .where((e) => e.value.length >= 10)
-      .map((e) => (e.key, 60 / (e.value.reduce((p, q) => p + q) / e.value.length)))
-      .toList()
-    ..sort((p, q) => p.$1.compareTo(q.$1));
-  const w = 180 * PdfPageFormat.mm, h = 30 * PdfPageFormat.mm;
-  if (pts.length < 2) return pw.Text('Za krótki zapis do wykresu trendu.');
-  final maxMin = max(1, pts.last.$1);
-  double x(int m) => m / maxMin * w;
-  double y(double hr) => (hr.clamp(30, 180) - 30) / 150 * h;
-  return pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
+  final pts = [
+    for (final e in bins.entries)
+      if (e.value.length >= 10)
+        () {
+          final v = [...e.value]..sort();
+          final mean = v.reduce((p, q) => p + q) / v.length;
+          return (e.key, mean, v[(v.length * 0.05).floor()], v[(v.length * 0.95).floor().clamp(0, v.length - 1)]);
+        }()
+  ]..sort((p, q) => p.$1.compareTo(q.$1));
+  if (pts.length < 2) return pw.Text(tx('Za krótki zapis do wykresu trendu.'));
+
+  const mm = PdfPageFormat.mm;
+  final hasAct = a.activity != null && a.activity!.any((v) => v >= 0);
+  const left = 9 * mm, w = 171 * mm, h = 42 * mm;
+  final actH = hasAct ? 7 * mm : 0.0;
+  final span = max(1, totalSec);
+  double x(num sec) => left + sec / span * w;
+  const hrLo = 40.0, hrHi = 180.0;
+  final base = actH + 5 * mm; // dół wykresu (pod nim podpisy godzin i pasek aktywności)
+  double y(double hr) => base + (hr.clamp(hrLo, hrHi) - hrLo) / (hrHi - hrLo) * h; // PDF: y w górę
+  final top = base + h, totalH = top + 3 * mm;
+  double secOf(int sample) => a.timeline.offsetOf(sample).inMilliseconds / 1000;
+
+  // Podziałka czasu: co 10 min / 30 min / 1 h / 2 h / 3 h – ok. 6–10 etykiet.
+  final stepMin = [1, 2, 5, 10, 15, 30, 60, 120, 180, 240].firstWhere((m) => totalSec / 60 / m <= 10, orElse: () => 360);
+  final start = a.timeline.started;
+  final firstTick = (stepMin - (start.hour * 60 + start.minute) % stepMin) % stepMin * 60 - start.second;
+  final ticks = [for (var t = firstTick; t <= totalSec; t += stepMin * 60) t];
+  String clock(int sec) {
+    final d = start.add(Duration(seconds: sec));
+    return '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
+  }
+
+  final af = [for (final e in a.events) if (e.type == EventType.af) (secOf(e.startSample), secOf(e.endSample))];
+  final high = [for (final e in a.events) if (e.severity == Severity.high && e.type != EventType.af) secOf(e.startSample)];
+  final sym = [for (final m in markers) if (m.sample >= 0) secOf(m.sample)];
+  const af1 = PdfColor.fromInt(0xFFEFE1F4), bandC = PdfColor.fromInt(0xFFF7CDD3), symC = PdfColor.fromInt(0xFF7B1FA2);
+
+  final labels = <pw.Widget>[
+    for (final hr in [60.0, 100.0, 140.0, 180.0])
+      pw.Positioned(left: 0, top: totalH - y(hr) - 3, child: pw.Text('${hr.round()}', style: const pw.TextStyle(fontSize: 6.5, color: _grey))),
+    for (final t in ticks)
+      if (x(t) <= left + w - 12) pw.Positioned(left: max(0.0, x(t) - 7), top: totalH - base + 2, child: pw.Text(clock(t), style: const pw.TextStyle(fontSize: 6.5, color: _grey))),
+    if (hasAct)
+      pw.Positioned(left: 0, top: totalH - actH, child: pw.Text(tx('ruch'), style: const pw.TextStyle(fontSize: 6, color: _grey))),
+  ];
+  final chart = pw.Stack(children: [
     pw.CustomPaint(
-      size: const PdfPoint(w, h),
-      painter: (canvas, size) {
-        for (final hr in [60.0, 100.0, 140.0]) {
-          canvas
-            ..setStrokeColor(PdfColors.grey300)
-            ..setLineWidth(0.3)
-            ..moveTo(0, y(hr))
-            ..lineTo(w, y(hr))
+      size: PdfPoint(left + w, totalH),
+      painter: (c, size) {
+        // Pasy AF.
+        for (final (s0, s1) in af) {
+          c
+            ..setFillColor(af1)
+            ..drawRect(x(s0), base, max(0.6, x(s1) - x(s0)), h)
+            ..fillPath();
+        }
+        // Siatka.
+        for (final hr in [60.0, 80.0, 100.0, 120.0, 140.0, 160.0, 180.0]) {
+          c
+            ..setStrokeColor(hr % 40 == 20 ? PdfColors.grey400 : PdfColors.grey200)
+            ..setLineWidth(hr % 40 == 20 ? 0.4 : 0.25)
+            ..moveTo(left, y(hr))
+            ..lineTo(left + w, y(hr))
             ..strokePath();
         }
-        canvas
-          ..setStrokeColor(PdfColors.red700)
-          ..setLineWidth(0.8)
-          ..moveTo(x(pts.first.$1), y(pts.first.$2));
-        for (final p in pts.skip(1)) {
-          canvas.lineTo(x(p.$1), y(p.$2));
+        for (final t in ticks) {
+          c
+            ..setStrokeColor(PdfColors.grey200)
+            ..setLineWidth(0.25)
+            ..moveTo(x(t), base)
+            ..lineTo(x(t), top)
+            ..strokePath();
         }
-        canvas.strokePath();
+        // Zakres min–maks (5–95 percentyl) w przedziale.
+        c.setFillColor(bandC);
+        c.moveTo(x(pts.first.$1 * binSec + binSec / 2), y(pts.first.$4));
+        for (final p in pts.skip(1)) {
+          c.lineTo(x(p.$1 * binSec + binSec / 2), y(p.$4));
+        }
+        for (final p in pts.reversed) {
+          c.lineTo(x(p.$1 * binSec + binSec / 2), y(p.$3));
+        }
+        c
+          ..closePath()
+          ..fillPath();
+        // Średnia (przerwa przy brakach > 2 przedziały).
+        c
+          ..setStrokeColor(_ecgRed)
+          ..setLineWidth(0.9)
+          ..setLineJoin(PdfLineJoin.round);
+        for (var i = 0; i < pts.length; i++) {
+          final px = x(pts[i].$1 * binSec + binSec / 2), py = y(pts[i].$2);
+          if (i == 0 || pts[i].$1 - pts[i - 1].$1 > 2) {
+            c.moveTo(px, py);
+          } else {
+            c.lineTo(px, py);
+          }
+        }
+        c.strokePath();
+        // Zdarzenia wysokiej wagi (czerwone trójkąty) i objawy (fioletowe flagi) u góry.
+        for (final t in high) {
+          c
+            ..setFillColor(_ecgRed)
+            ..moveTo(x(t) - 2, top)
+            ..lineTo(x(t) + 2, top)
+            ..lineTo(x(t), top - 3.5)
+            ..closePath()
+            ..fillPath();
+        }
+        for (final t in sym) {
+          c
+            ..setStrokeColor(symC)
+            ..setLineWidth(0.8)
+            ..moveTo(x(t), base)
+            ..lineTo(x(t), top)
+            ..strokePath()
+            ..setFillColor(symC)
+            ..drawRect(x(t), top - 3, 3.5, 3)
+            ..fillPath();
+        }
+        // Aktywność (ACC): słupki co 2 s uśrednione do szerokości ~0.5 mm.
+        if (hasAct) {
+          final act = a.activity!;
+          final cols = (w / (0.5 * mm)).floor();
+          c.setFillColor(PdfColors.blueGrey300);
+          for (var k = 0; k < cols; k++) {
+            final i0 = (k * act.length / cols).floor(), i1 = max(i0 + 1, ((k + 1) * act.length / cols).floor());
+            var sum = 0.0, n = 0;
+            for (var i = i0; i < i1 && i < act.length; i++) {
+              if (act[i] >= 0) {
+                sum += act[i];
+                n++;
+              }
+            }
+            if (n == 0) continue;
+            final v = (sum / n / 300).clamp(0.0, 1.0); // 300 mg = pełna wysokość
+            c
+              ..drawRect(left + k * 0.5 * mm, 0, 0.45 * mm, max(0.2, v * actH))
+              ..fillPath();
+          }
+        }
+        c
+          ..setStrokeColor(PdfColors.grey500)
+          ..setLineWidth(0.4)
+          ..drawRect(left, base, w, h)
+          ..strokePath();
       },
     ),
-    pw.Text('Linie: 60, 100, 140 /min; oś pozioma: 0-$maxMin min zapisu', style: const pw.TextStyle(fontSize: 7)),
+    ...labels,
+  ]);
+  pw.Widget key(PdfColor color, String text) => pw.Row(mainAxisSize: pw.MainAxisSize.min, children: [
+        pw.Container(width: 8, height: 4, color: color),
+        pw.SizedBox(width: 3),
+        pw.Text(tx(text), style: const pw.TextStyle(fontSize: 7, color: _grey)),
+        pw.SizedBox(width: 10),
+      ]);
+  return pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
+    chart,
+    pw.SizedBox(height: 4),
+    pw.Row(children: [
+      key(_ecgRed, 'tętno średnie (${binSec ~/ 60} min)'),
+      key(bandC, 'zakres 5–95%'),
+      if (af.isNotEmpty) key(af1, 'migotanie przedsionków'),
+      if (high.isNotEmpty) key(_ecgRed, 'zdarzenie wysokiej wagi (u góry)'),
+      if (sym.isNotEmpty) key(symC, 'objaw'),
+      if (hasAct) key(PdfColors.blueGrey300, 'aktywność (akcelerometr)'),
+    ]),
   ]);
 }
 
-/// Czcionka z polskimi znakami: systemowa (Android: Roboto, Windows: Arial) – bez dołączania plików.
+/// Zapasowa czcionka z polskimi znakami: systemowa (Android: Roboto, Windows: Arial).
 Future<(pw.Font, pw.Font)?> _loadFonts() async {
   const regular = [
     '/system/fonts/Roboto-Regular.ttf',

@@ -2,6 +2,7 @@
 // ignore_for_file: avoid_print
 
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:polar_ecg/analysis/analyzer.dart';
 import 'package:polar_ecg/recording/markers.dart';
@@ -15,7 +16,7 @@ Future<void> main(List<String> args) async {
     final a = (await loadAnalysis(args[1])) ?? await analyzeRecordingDir(args[1]);
     final sig = await loadFiltered(args[1]);
     final markers = await loadMarkers(args[1], a.timeline);
-    File(out).writeAsBytesSync(await buildPdfReport(a: a, signal: sig, markers: markers));
+    File(out).writeAsBytesSync(await buildPdfReport(a: a, signal: sig, markers: markers, fontData: _fonts()));
   } else {
     final s = SyntheticEcg(seed: 3)
       ..sinus(120)
@@ -29,6 +30,7 @@ Future<void> main(List<String> args) async {
     final a = res.result;
     final markers = [SymptomMarker(a.timeline.timeOf(130 * 300), 130 * 300, 'Kołatanie serca', 'po schodach')];
     File(out).writeAsBytesSync(await buildPdfReport(
+      fontData: _fonts(),
       a: a,
       signal: res.filtered,
       markers: markers,
@@ -38,3 +40,9 @@ Future<void> main(List<String> args) async {
   }
   print('zapisano $out');
 }
+
+/// Czcionka dołączona do aplikacji (assets/fonts) – jak na telefonie.
+(Uint8List, Uint8List) _fonts() => (
+      File('assets/fonts/Roboto-Regular.ttf').readAsBytesSync(),
+      File('assets/fonts/Roboto-Bold.ttf').readAsBytesSync(),
+    );

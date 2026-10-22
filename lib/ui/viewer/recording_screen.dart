@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 
 import '../../analysis/analysis_result.dart';
 import '../../analysis/analyzer.dart';
+import '../../analysis/rhythm_at.dart';
+import '../../analysis/confidence.dart';
 import '../../analysis/ecg_recording.dart';
 import '../../export/exporters.dart';
 import '../../recording/markers.dart';
@@ -11,20 +13,27 @@ import '../../report/pdf_report.dart';
 import 'dart:io';
 import 'package:share_plus/share_plus.dart';
 import '../../settings/app_settings.dart';
+import '../report_fonts.dart';
 import 'beat_sheet.dart';
+import 'clusters_screen.dart';
 import 'ecg_strip_view.dart';
 import 'format.dart';
 import 'tachogram.dart';
 import 'viewport.dart';
 import 'waveform_card.dart';
 import '../legend_screen.dart';
+import '../theme/app_theme.dart';
 
 /// Przegląd i analiza jednego zapisu.
 class RecordingScreen extends StatefulWidget {
   final String path;
   final String title;
 
-  const RecordingScreen({super.key, required this.path, required this.title});
+  /// Fragment do pokazania po otwarciu (np. napad AF z dziennika).
+  final int? initialSample, initialEndSample;
+
+  const RecordingScreen(
+      {super.key, required this.path, required this.title, this.initialSample, this.initialEndSample});
 
   @override
   State<RecordingScreen> createState() => _RecordingScreenState();
@@ -70,6 +79,8 @@ class _RecordingScreenState extends State<RecordingScreen> with SingleTickerProv
         _viewport = EcgViewport(totalSamples: sig.length, sampleRate: a.sampleRate);
         if (keepView) _viewport!.set(oldStart!, oldSpan);
       });
+      final at = widget.initialSample;
+      if (!keepView && at != null && at < sig.length) _goTo(at, endSample: widget.initialEndSample);
     } catch (e, st) {
       debugPrint('Błąd analizy ${widget.path}: $e\n$st');
       if (mounted) setState(() => _error = 'Błąd analizy: $e');
@@ -102,6 +113,17 @@ class _RecordingScreenState extends State<RecordingScreen> with SingleTickerProv
     // Poprawka zgodna z wynikiem analizy niczego nie zmienia – usuwamy ją.
     final same = choice == a.labels[k] && !a.corrected.containsKey(sample);
     await _setCorrection(sample, choice < 0 || same ? null : choice);
+  }
+
+  /// Przegląd grup morfologii; zatwierdzone zmiany grup dopisujemy do poprawek i przeliczamy zapis.
+  Future<void> _openClusters() async {
+    final changes = await Navigator.of(context).push<Map<int, int>>(
+      MaterialPageRoute(builder: (_) => ClustersScreen(analysis: _analysis!, signal: _signal!)),
+    );
+    if (changes == null || changes.isEmpty) return;
+    _corrections = {..._corrections, ...changes};
+    await saveCorrections(widget.path, _corrections);
+    await _load(force: true);
   }
 
   Future<void> _onLongPress(int sample) async {
@@ -142,6 +164,7 @@ class _RecordingScreenState extends State<RecordingScreen> with SingleTickerProv
             signal: _signal!,
             markers: _markers,
             person: ReportPerson(name: s.name, age: s.age, sex: s.sex),
+            fontData: await loadReportFonts(),
           );
           f = File('${dir.path}/raport_ekg_$stamp.pdf');
           await f.writeAsBytes(bytes);
@@ -159,6 +182,35 @@ class _RecordingScreenState extends State<RecordingScreen> with SingleTickerProv
     } catch (e) {
       messenger.showSnackBar(SnackBar(content: Text('Błąd eksportu: $e')));
     }
+  }
+
+  /// Ręczne oznaczenie napadu AF (potwierdzenie, odrzucenie, dodanie przeoczonego) i ponowna analiza.
+  Future<void> _markAf(int start, int end, bool af) async {
+    await addAfMark(widget.path, AfMark(start, end, af));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(af ? 'Oznaczono napad AF – przeliczam zapis' : 'Odrzucono napad AF – przeliczam zapis')));
+    await _load(force: true);
+  }
+
+  /// Oznaczenie fragmentu widocznego na ekranie (np. przeoczony napad).
+  Future<void> _markVisible(bool af) async {
+    final vp = _viewport!;
+    final start = vp.start.round().clamp(0, vp.totalSamples - 1), end = (vp.start + vp.span).round().clamp(0, vp.totalSamples - 1);
+    final a = _analysis!;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(af ? 'Oznaczyć jako migotanie przedsionków?' : 'Usunąć migotanie z tego fragmentu?'),
+        content: Text('Fragment ${fmtClock(a.timeline.timeOf(start))}–${fmtClock(a.timeline.timeOf(end))} '
+            '(widoczny na ekranie). Oznaczenie ma pierwszeństwo przed analizą automatyczną.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Anuluj')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Oznacz')),
+        ],
+      ),
+    );
+    if (ok == true) await _markAf(start, end, af);
   }
 
   void _goTo(int sample, {int? endSample}) {
@@ -188,6 +240,11 @@ class _RecordingScreenState extends State<RecordingScreen> with SingleTickerProv
         title: Text(widget.title),
         actions: [
           IconButton(
+            icon: const Icon(Icons.category_outlined),
+            tooltip: 'Grupy morfologii',
+            onPressed: a == null || _busy ? null : _openClusters,
+          ),
+          IconButton(
             icon: const Icon(Icons.help_outline),
             tooltip: 'Legenda',
             onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const LegendScreen())),
@@ -204,10 +261,19 @@ class _RecordingScreenState extends State<RecordingScreen> with SingleTickerProv
               PopupMenuItem(value: 'rr', child: Text('CSV – odstępy RR (np. Kubios HRV)')),
             ],
           ),
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            tooltip: 'Analizuj ponownie',
-            onPressed: _busy ? null : () => _load(force: true),
+          PopupMenuButton<String>(
+            tooltip: 'Więcej',
+            enabled: a != null && !_busy,
+            onSelected: (v) => switch (v) {
+              'af' => _markVisible(true),
+              'noaf' => _markVisible(false),
+              _ => _load(force: true),
+            },
+            itemBuilder: (_) => const [
+              PopupMenuItem(value: 'af', child: Text('Oznacz widoczny fragment jako AF')),
+              PopupMenuItem(value: 'noaf', child: Text('Usuń AF z widocznego fragmentu')),
+              PopupMenuItem(value: 'redo', child: Text('Analizuj ponownie')),
+            ],
           ),
         ],
         bottom: TabBar(controller: _tabs, tabs: [
@@ -256,6 +322,7 @@ class _RecordingScreenState extends State<RecordingScreen> with SingleTickerProv
                           markers: _markers,
                           onSelect: (e) => _goTo(e.startSample, endSample: e.endSample),
                           onMarker: (m) => _goTo(m.sample),
+                          onAfMark: (e, af) => _markAf(e.startSample, e.endSample, af),
                         ),
                         _ReportTab(analysis: a),
                       ],
@@ -382,8 +449,14 @@ class _EventsTab extends StatelessWidget {
   final List<SymptomMarker> markers;
   final void Function(EcgEvent) onSelect;
   final void Function(SymptomMarker) onMarker;
+  final void Function(EcgEvent, bool af) onAfMark;
 
-  const _EventsTab({required this.analysis, required this.markers, required this.onSelect, required this.onMarker});
+  const _EventsTab(
+      {required this.analysis,
+      required this.markers,
+      required this.onSelect,
+      required this.onMarker,
+      required this.onAfMark});
 
   @override
   Widget build(BuildContext context) {
@@ -398,15 +471,16 @@ class _EventsTab extends StatelessWidget {
       );
     }
     final scheme = Theme.of(context).colorScheme;
+    final unsure = AnalysisConfidence.of(analysis).uncertainEvents;
     return ListView(
       children: [
         if (markers.isNotEmpty) ...[
           const Padding(padding: EdgeInsets.fromLTRB(16, 12, 16, 4), child: Text('Zgłoszone objawy')),
           for (final m in markers)
             ListTile(
-              leading: const Icon(Icons.flag, color: Color(0xFF7B1FA2)),
+              leading: Icon(Icons.flag, color: AppColors.of(context).symptom),
               title: Text(m.label),
-              subtitle: Text('${fmtClock(m.time)} · ${_rhythmAt(m.sample)}'),
+              subtitle: Text('${fmtClock(m.time)} · ${m.sample < 0 ? 'poza zapisem EKG' : rhythmAt(analysis, m.sample).text}'),
               trailing: const Icon(Icons.chevron_right),
               enabled: m.sample >= 0,
               onTap: () => onMarker(m),
@@ -414,41 +488,45 @@ class _EventsTab extends StatelessWidget {
           const Divider(),
         ],
         if (ev.isNotEmpty) const Padding(padding: EdgeInsets.fromLTRB(16, 8, 16, 4), child: Text('Wykryte zdarzenia')),
-        for (final e in ev)
+        for (final (k, e) in ev.indexed)
           ListTile(
             leading: Icon(Icons.circle,
                 color: switch (e.severity) {
-                  Severity.high => const Color(0xFFD32F2F),
-                  Severity.medium => const Color(0xFFF57C00),
+                  Severity.high => AppColors.of(context).danger,
+                  Severity.medium => AppColors.of(context).warning,
                   Severity.low => scheme.outline,
                 },
                 size: 14),
             title: Text(e.type.label),
-            subtitle: Text([fmtClock(analysis.timeline.timeOf(e.startSample)), if (e.detail.isNotEmpty) e.detail].join(' · ')),
-            trailing: const Icon(Icons.chevron_right),
+            subtitle: Text([
+              fmtClock(analysis.timeline.timeOf(e.startSample)),
+              if (e.detail.isNotEmpty) e.detail,
+              if (unsure.contains(k)) 'niepewne – zakłócenia w pobliżu',
+            ].join(' · ')),
+            trailing: e.type == EventType.af
+                ? PopupMenuButton<bool>(
+                    icon: Icon(
+                        analysis.afMarks.any((m) => m.af && m.overlaps(e.startSample, e.endSample))
+                            ? Icons.verified
+                            : Icons.more_vert,
+                        color: AppColors.of(context).af),
+                    tooltip: 'Potwierdź lub odrzuć napad',
+                    onSelected: (af) => onAfMark(e, af),
+                    itemBuilder: (_) => const [
+                      PopupMenuItem(value: true, child: Text('Potwierdzam – to był napad AF')),
+                      PopupMenuItem(value: false, child: Text('To nie był napad (fałszywy alarm)')),
+                    ],
+                  )
+                : unsure.contains(k)
+                    ? Icon(Icons.help_outline, color: AppColors.of(context).warning)
+                    : const Icon(Icons.chevron_right),
             onTap: () => onSelect(e),
           ),
       ],
     );
   }
-
-  /// Krótki opis rytmu w chwili objawu (±10 s) – czy objaw miał odpowiednik w EKG.
-  String _rhythmAt(int sample) {
-    if (sample < 0) return 'poza zapisem EKG';
-    final fs = analysis.sampleRate;
-    final a = analysis.beatIndexAtOrAfter(sample - 10 * fs), b = analysis.beatIndexAtOrAfter(sample + 10 * fs);
-    if (b - a < 2) return 'brak czytelnych uderzeń';
-    var v = 0, s = 0, af = false;
-    for (var k = a; k < b; k++) {
-      if (analysis.labels[k] == BeatType.ventricular) v++;
-      if (analysis.labels[k] == BeatType.supraventricular) s++;
-      if (analysis.inAf[k] == 1) af = true;
-    }
-    final hr = (60 * fs * (b - a - 1) / (analysis.rPeaks[b - 1] - analysis.rPeaks[a])).round();
-    final parts = ['$hr/min', if (af) 'migotanie', if (v > 0) 'V: $v', if (s > 0) 'S: $s'];
-    return parts.join(', ');
-  }
 }
+
 // ---------------- Raport ----------------
 
 class _ReportTab extends StatelessWidget {
@@ -477,7 +555,9 @@ class _ReportTab extends StatelessWidget {
         Text('${fmtDate(tl.started)}, ${fmtClock(tl.started)}', style: t.titleMedium),
         Text('Czas zapisu ${fmtDuration(Duration(seconds: (s['duration_s'] ?? 0).round()))}, '
             'analizowane ${fmtDuration(Duration(seconds: (s['analyzed_s'] ?? 0).round()))}'),
-        const SizedBox(height: 16),
+        const SizedBox(height: 12),
+        _ConfidenceCard(conf: AnalysisConfidence.of(analysis)),
+        const SizedBox(height: 4),
         Text('Parametry przebiegu', style: t.titleSmall),
         const SizedBox(height: 6),
         WaveformCard(analysis: analysis),
@@ -515,6 +595,46 @@ class _ReportTab extends StatelessWidget {
           style: t.bodySmall,
         ),
       ],
+    );
+  }
+}
+
+/// Wiarygodność analizy: ocena, czytelność zapisu, niepewne klasyfikacje i powody obniżenia oceny.
+class _ConfidenceCard extends StatelessWidget {
+  final AnalysisConfidence conf;
+
+  const _ConfidenceCard({required this.conf});
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context).textTheme;
+    final color = switch (conf.level) {
+      ConfidenceLevel.high => AppColors.of(context).ok,
+      ConfidenceLevel.medium => AppColors.of(context).warning,
+      ConfidenceLevel.low => AppColors.of(context).danger,
+    };
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(children: [
+              Icon(Icons.verified_outlined, color: color, size: 20),
+              const SizedBox(width: 8),
+              Text('Wiarygodność analizy: ', style: t.titleSmall),
+              Text(conf.level.label, style: t.titleSmall?.copyWith(color: color)),
+            ]),
+            const SizedBox(height: 6),
+            Text('Zapis bez zakłóceń ${conf.readablePct.round()}% · czytelne pobudzenia ${conf.beatsReadablePct.round()}%'),
+            if (conf.uncertainV + conf.uncertainS > 0)
+              Text('Niepewna klasyfikacja: V ${conf.uncertainV}, S ${conf.uncertainS} '
+                  '(do sprawdzenia w przeglądzie grup lub strzałkami w Przebiegu)'),
+            for (final r in conf.reasons) Text('• $r', style: t.bodySmall),
+          ],
+        ),
+      ),
     );
   }
 }

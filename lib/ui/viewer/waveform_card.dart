@@ -7,6 +7,7 @@ import '../../analysis/reference_ranges.dart';
 import '../../settings/app_settings.dart';
 import '../legend_screen.dart';
 import 'format.dart';
+import '../theme/app_theme.dart';
 
 /// Parametry przebiegu z zakresami i oceną + rysunek uśrednionego zespołu.
 class WaveformCard extends StatelessWidget {
@@ -23,7 +24,7 @@ class WaveformCard extends StatelessWidget {
     final params = paramsFor(sex);
     final bad = outOfRange(s, sex: sex);
     final measured = params.any((p) => s[p.key] != null);
-    const ok = Color(0xFF2E7D32), warn = Color(0xFFD32F2F);
+    final ok = AppColors.of(context).ok, warn = AppColors.of(context).danger;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
@@ -49,7 +50,7 @@ class WaveformCard extends StatelessWidget {
               padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
               child: AspectRatio(
                 aspectRatio: 2.2,
-                child: CustomPaint(painter: _TemplatePainter(analysis, scheme, Theme.of(context).brightness == Brightness.dark)),
+                child: CustomPaint(painter: _TemplatePainter(analysis, scheme, AppColors.of(context))),
               ),
             ),
           if (analysis.template != null)
@@ -119,9 +120,9 @@ class WaveformCard extends StatelessWidget {
 class _TemplatePainter extends CustomPainter {
   final AnalysisResult a;
   final ColorScheme scheme;
-  final bool dark;
+  final AppColors palette;
 
-  _TemplatePainter(this.a, this.scheme, this.dark);
+  _TemplatePainter(this.a, this.scheme, this.palette);
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -139,9 +140,9 @@ class _TemplatePainter extends CustomPainter {
     final pxPerUv = h / 2 / (peak * 1.15);
     double y(double uv) => h / 2 - (uv - base) * pxPerUv;
 
-    canvas.drawRect(Offset.zero & size, Paint()..color = dark ? const Color(0xFF1A1414) : const Color(0xFFFFF9F7));
-    final minor = Paint()..color = dark ? const Color(0xFF3A2626) : const Color(0xFFF6D3CC)..strokeWidth = 0.5;
-    final major = Paint()..color = dark ? const Color(0xFF5E3434) : const Color(0xFFE8A196)..strokeWidth = 0.8;
+    canvas.drawRect(Offset.zero & size, Paint()..color = palette.paper);
+    final minor = Paint()..color = palette.gridMinor..strokeWidth = 0.5;
+    final major = Paint()..color = palette.gridMajor..strokeWidth = 0.8;
     for (var ms = msFrom; ms <= msTo; ms += 40) {
       canvas.drawLine(Offset(x(ms), 0), Offset(x(ms), h), (ms % 200 == 0) ? major : minor);
     }
@@ -174,7 +175,7 @@ class _TemplatePainter extends CustomPainter {
     canvas.drawPath(
       path,
       Paint()
-        ..color = dark ? const Color(0xFFEDEDED) : const Color(0xFF111111)
+        ..color = palette.trace
         ..strokeWidth = 1.8
         ..style = PaintingStyle.stroke
         ..strokeJoin = StrokeJoin.round,
@@ -182,5 +183,5 @@ class _TemplatePainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _TemplatePainter old) => old.a != a || old.dark != dark;
+  bool shouldRepaint(covariant _TemplatePainter old) => old.a != a || old.palette != palette;
 }

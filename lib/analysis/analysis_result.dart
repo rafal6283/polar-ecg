@@ -26,7 +26,11 @@ enum EventType {
   svt('Częstoskurcz nadkomorowy', Severity.medium),
   svRun('Salwa pobudzeń nadkomorowych', Severity.low),
   brady('Bradykardia', Severity.medium),
-  tachy('Tachykardia', Severity.low);
+  tachy('Tachykardia', Severity.low),
+  afl('Trzepotanie przedsionków (podejrzenie)', Severity.high),
+  avBlock2('Blok AV II stopnia (podejrzenie)', Severity.medium),
+  stDepression('Obniżenie odcinka ST', Severity.medium),
+  stElevation('Uniesienie odcinka ST', Severity.medium);
 
   final String label;
   final Severity defaultSeverity;
@@ -61,6 +65,19 @@ class EcgEvent {
       );
 }
 
+/// Ręczne oznaczenie fragmentu: napad AF potwierdzony/dodany ([af] = true) albo odrzucony (fałszywy alarm).
+/// Ma pierwszeństwo przed wykrywaniem automatycznym; zbiór takich oznaczeń to też dane do strojenia algorytmu.
+class AfMark {
+  final int start, end; // próbki
+  final bool af;
+  const AfMark(this.start, this.end, this.af);
+
+  bool overlaps(int a, int b) => start <= b && a <= end;
+
+  List<Object> toJson() => [start, end, af ? 1 : 0];
+  factory AfMark.fromJson(List j) => AfMark(j[0] as int, j[1] as int, j[2] == 1);
+}
+
 class AnalysisStats {
   final Map<String, num?> values;
 
@@ -70,7 +87,7 @@ class AnalysisStats {
 }
 
 class AnalysisResult {
-  static const version = 3;
+  static const version = 6; // 4: v1.3.0 – nowe zdarzenia; 5: v1.7.0 – S w tachykardii zatokowej, napady AF; 6: v1.8.0 – nowy model
 
   final Timeline timeline;
   final Int32List rPeaks;
@@ -94,6 +111,9 @@ class AnalysisResult {
   /// Ręczne poprawki uwzględnione w analizie: próbka R → etykieta (9 = usunięte).
   final Map<int, int> corrected;
 
+  /// Ręczne oznaczenia AF uwzględnione w analizie.
+  final List<AfMark> afMarks;
+
   AnalysisResult({
     required this.timeline,
     required this.rPeaks,
@@ -108,6 +128,7 @@ class AnalysisResult {
     this.probs,
     this.activity,
     this.corrected = const {},
+    this.afMarks = const [],
   });
 
   /// Prawdopodobieństwo klasy [cls] (BeatType: 0 N, 1 S, 2 V) dla pobudzenia [i].
@@ -148,6 +169,7 @@ class AnalysisResult {
         if (probs != null) 'probs': base64Encode(Uint8List.fromList([for (final p in probs!) (p * 255).round()])),
         if (activity != null) 'activity': [for (final a in activity!) a.round()],
         'corrected': {for (final e in corrected.entries) '${e.key}': e.value},
+        if (afMarks.isNotEmpty) 'af_marks': [for (final m in afMarks) m.toJson()],
       };
 
   factory AnalysisResult.fromJson(Map<String, dynamic> j) {
@@ -179,6 +201,7 @@ class AnalysisResult {
       corrected: {
         for (final e in (j['corrected'] as Map<String, dynamic>? ?? {}).entries) int.parse(e.key): e.value as int
       },
+      afMarks: [for (final m in j['af_marks'] as List? ?? const []) AfMark.fromJson(m as List)],
     );
   }
 }

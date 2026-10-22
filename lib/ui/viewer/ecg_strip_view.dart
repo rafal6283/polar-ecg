@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../../analysis/analysis_result.dart';
 import 'format.dart';
 import 'viewport.dart';
+import '../theme/app_theme.dart';
 
 /// Przewijany i skalowany wykres EKG z oznaczeniami pobudzeń.
 /// Przeciągnięcie – przesuw, rozsunięcie palców – skala czasu, podwójne stuknięcie – 10 s.
@@ -97,6 +98,7 @@ class _EcgStripViewState extends State<EcgStripView> {
               span: vp.span,
               scheme: Theme.of(context).colorScheme,
               dark: Theme.of(context).brightness == Brightness.dark,
+              palette: AppColors.of(context),
               corrections: widget.corrections,
               markers: widget.markers,
             ),
@@ -113,6 +115,7 @@ class _StripPainter extends CustomPainter {
   final double start, span;
   final ColorScheme scheme;
   final bool dark;
+  final AppColors palette;
   final Map<int, int> corrections;
   final Map<int, String> markers;
 
@@ -123,6 +126,7 @@ class _StripPainter extends CustomPainter {
     required this.span,
     required this.scheme,
     required this.dark,
+    required this.palette,
     this.corrections = const {},
     this.markers = const {},
   });
@@ -136,13 +140,13 @@ class _StripPainter extends CustomPainter {
     final midY = top + plotH / 2;
     double xOf(num s) => (s - start) / span * w;
 
-    canvas.drawRect(Offset.zero & size, Paint()..color = dark ? const Color(0xFF1A1414) : const Color(0xFFFFF9F7));
+    canvas.drawRect(Offset.zero & size, Paint()..color = palette.paper);
 
     final s0 = max(0, start.floor());
     final s1 = min(signal.length, (start + span).ceil() + 1);
 
     // Tła: epizody AF, artefakty.
-    final afPaint = Paint()..color = Colors.orange.withValues(alpha: 0.13);
+    final afPaint = Paint()..color = palette.af.withValues(alpha: 0.12);
     for (final e in a.events) {
       if (e.type != EventType.af || e.endSample < s0 || e.startSample > s1) continue;
       canvas.drawRect(Rect.fromLTRB(xOf(e.startSample), top, xOf(e.endSample), h - bottom), afPaint);
@@ -161,8 +165,8 @@ class _StripPainter extends CustomPainter {
     final pxPerUv = plotH / 2 / rangeUv;
 
     // Siatka jak na papierze EKG: 0.2 s / 0.5 mV (duże), 0.04 s / 0.1 mV (małe).
-    final minor = Paint()..color = dark ? const Color(0xFF3A2626) : const Color(0xFFF6D3CC)..strokeWidth = 0.5;
-    final major = Paint()..color = dark ? const Color(0xFF5E3434) : const Color(0xFFE8A196)..strokeWidth = 0.8;
+    final minor = Paint()..color = palette.gridMinor..strokeWidth = 0.5;
+    final major = Paint()..color = palette.gridMajor..strokeWidth = 0.8;
     final pxPerSec = w / span * fs;
     final minorStep = pxPerSec * 0.04 >= 4 ? 0.04 : (pxPerSec * 0.2 >= 4 ? 0.2 : 1.0);
     final firstLine = ((start / fs) / minorStep).floor();
@@ -185,7 +189,7 @@ class _StripPainter extends CustomPainter {
     canvas.save();
     canvas.clipRect(Rect.fromLTRB(0, top, w, h - bottom));
     final trace = Paint()
-      ..color = dark ? const Color(0xFFEDEDED) : const Color(0xFF111111)
+      ..color = palette.trace
       ..strokeWidth = 1.3
       ..style = PaintingStyle.stroke
       ..strokeJoin = StrokeJoin.round;
@@ -270,9 +274,9 @@ class _StripPainter extends CustomPainter {
     for (final e in markers.entries) {
       if (e.key < s0 || e.key > s1) continue;
       final x = xOf(e.key);
-      final p = Paint()..color = const Color(0xFF7B1FA2)..strokeWidth = 2;
+      final p = Paint()..color = palette.symptom..strokeWidth = 2;
       canvas.drawLine(Offset(x, top), Offset(x, h - bottom), p);
-      _text(canvas, '⚑ ${e.value}', Offset(x + 3, top + 14), const Color(0xFF7B1FA2), 11, bold: true);
+      _text(canvas, '⚑ ${e.value}', Offset(x + 3, top + 14), palette.symptom, 11, bold: true);
     }
 
     // Godzina początku widoku i skala.
@@ -306,8 +310,8 @@ class _StripPainter extends CustomPainter {
 }
 
 Color beatColor(int label, ColorScheme scheme) => switch (label) {
-      BeatType.ventricular => const Color(0xFFD32F2F),
-      BeatType.supraventricular => const Color(0xFF1976D2),
+      BeatType.ventricular => AppColors.light.beatV,
+      BeatType.supraventricular => AppColors.light.beatS,
       BeatType.unknown => scheme.outline,
       _ => scheme.onSurfaceVariant,
     };

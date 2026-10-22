@@ -1,0 +1,75 @@
+# Budowanie wersji iOS w chmurze GitHuba (macOS, Xcode): testy -> niepodpisany plik IPA -> wydanie (Release).
+# IPA instaluje się na iPhonie przez AltStore / Sideloadly (podpis własnym Apple ID przy instalacji).
+# Minuty macOS liczą się 10× – dlatego nie przy każdym pushu: ręcznie (Actions -> iOS IPA -> Run workflow)
+# albo push z „[ios]” w opisie commita.
+name: iOS IPA
+
+on:
+  push:
+    branches: [main, main-5zheht]
+    paths-ignore: ['**.md']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[ios]')
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.47.5
+          cache: true
+
+      - name: Zależności
+        run: flutter pub get
+
+      - name: Testy
+        run: flutter test
+
+      - name: Wersja
+        id: ver
+        run: |
+          NAME=$(grep -E '^version:' pubspec.yaml | sed -E 's/version: *([0-9.]+).*/\1/')
+          BUILD=$((100 + ${{ github.run_number }}))
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "build=$BUILD" >> "$GITHUB_OUTPUT"
+          echo "tag=ios-v$NAME-b$BUILD" >> "$GITHUB_OUTPUT"
+
+      - name: Aplikacja iOS (bez podpisu)
+        run: >
+          flutter build ios --release --no-codesign
+          --build-name=${{ steps.ver.outputs.name }} --build-number=${{ steps.ver.outputs.build }}
+
+      - name: Plik IPA
+        run: |
+          mkdir -p dist/Payload
+          cp -R build/ios/iphoneos/Runner.app dist/Payload/
+          cd dist && zip -qry "polar-ekg-${{ steps.ver.outputs.tag }}.ipa" Payload && rm -rf Payload
+          ls -la
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: polar-ekg-${{ steps.ver.outputs.tag }}
+          path: dist/*.ipa
+          retention-days: 30
+
+      - name: Wydanie (Releases)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ steps.ver.outputs.tag }}" dist/*.ipa \
+            --target "${{ github.sha }}" \
+            --title "Polar EKG iOS ${{ steps.ver.outputs.name }} (kompilacja ${{ steps.ver.outputs.build }}, ${{ github.ref_name }})" \
+            --notes "Niepodpisany IPA – instalacja przez AltStore lub Sideloadly (podpis własnym Apple ID). Commit ${{ github.sha }}." \
+            --prerelease

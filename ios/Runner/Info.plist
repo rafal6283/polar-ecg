@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Polar Ecg</string>
+	<string>Polar EKG</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -68,9 +68,17 @@
 	</array>
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>Aplikacja łączy się z opaską Polar H10, aby rejestrować EKG.</string>
+	<key>NSBluetoothPeripheralUsageDescription</key>
+	<string>Aplikacja łączy się z opaską Polar H10, aby rejestrować EKG.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>bluetooth-central</string>
 	</array>
+	<key>UIFileSharingEnabled</key>
+	<true/>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 </dict>
 </plist>

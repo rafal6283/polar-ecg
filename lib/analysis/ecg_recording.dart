@@ -80,7 +80,10 @@ class EcgRecording {
   /// Aktywność [mg] w oknach 2 s EKG (odch. std. modułu przyspieszenia); -1 = brak danych.
   final Float32List? activity;
 
-  EcgRecording(this.dir, this.timeline, this.uv, [this.activity]);
+  /// Odstępy RR z opaski (rr.csv): (próbka EKG zakończenia odstępu, RR [ms]); null bez pliku.
+  final List<(int, double)>? deviceRr;
+
+  EcgRecording(this.dir, this.timeline, this.uv, [this.activity, this.deviceRr]);
 
   int get sampleRate => timeline.sampleRate;
 
@@ -119,7 +122,7 @@ class EcgRecording {
       if (count > segStart) segments.add(Segment(segStart, count - segStart, segT0));
       final tl = Timeline(started, fs, segments);
       final acc = await BinaryStream.read(File('${dir.path}/acc.bin'));
-      return EcgRecording(dir, tl, builder.build(), acc == null ? null : _activity(acc, tl));
+      return EcgRecording(dir, tl, builder.build(), acc == null ? null : _activity(acc, tl), _deviceRr(dir, tl));
     }
 
     final lines = File('${dir.path}/ecg.csv').openRead().transform(utf8.decoder).transform(const LineSplitter());
@@ -200,4 +203,54 @@ class _FloatBuilder {
     }
     return out;
   }
+}
+
+/// rr.csv (phone_ms, hr_bpm, rr_ms): odstępy z jednego powiadomienia BLE mają ten sam czas telefonu – ostatni
+/// kończy się ok. w chwili odbioru, wcześniejsze cofamy o sumę późniejszych. Czas telefonu -> próbka EKG przez
+/// przesunięcie względem początku zapisu (dokładność ~1 s wystarcza do oceny rytmu w oknach).
+List<(int, double)>? _deviceRr(Directory dir, Timeline tl) {
+  final f = File('${dir.path}/rr.csv');
+  if (!f.existsSync() || tl.segments.isEmpty) return null;
+  // Początek w czasie epoki: meta.json 'started_ms' (od v1.6) albo wiersz 'start' w events.csv – 'started' jest
+  // czasem lokalnym bez strefy (na PC/w chmurze w innej strefie przesunąłby odstępy o kilka godzin).
+  var startMs = tl.started.millisecondsSinceEpoch;
+  final ev = File('${dir.path}/events.csv');
+  try {
+    final m = jsonDecode(File('${dir.path}/meta.json').readAsStringSync()) as Map<String, dynamic>;
+    final sm = (m['started_ms'] as num?)?.toInt();
+    if (sm != null) startMs = sm;
+  } catch (_) {}
+  if (ev.existsSync() && startMs == tl.started.millisecondsSinceEpoch) {
+    for (final line in ev.readAsLinesSync().skip(1)) {
+      final p = line.split(',');
+      if (p.length >= 2 && p[1].trim() == 'start') {
+        startMs = int.tryParse(p[0]) ?? startMs;
+        break;
+      }
+    }
+  }
+  final total = tl.totalDuration.inMilliseconds;
+  final byTime = <int, List<double>>{};
+  final order = <int>[];
+  for (final line in f.readAsLinesSync().skip(1)) {
+    final p = line.split(',');
+    if (p.length < 3 || p[2].isEmpty) continue;
+    final t = int.tryParse(p[0]), rr = double.tryParse(p[2]);
+    if (t == null || rr == null) continue;
+    if (!byTime.containsKey(t)) order.add(t);
+    byTime.putIfAbsent(t, () => []).add(rr);
+  }
+  final out = <(int, double)>[];
+  for (final t in order) {
+    final rrs = byTime[t]!;
+    var end = t.toDouble();
+    final tmp = <(int, double)>[];
+    for (var k = rrs.length - 1; k >= 0; k--) {
+      final off = end - startMs;
+      if (off >= 0 && off <= total) tmp.add((tl.sampleAt(Duration(milliseconds: off.round())), rrs[k]));
+      end -= rrs[k];
+    }
+    out.addAll(tmp.reversed);
+  }
+  return out.isEmpty ? null : out;
 }

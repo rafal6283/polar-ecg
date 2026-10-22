@@ -15,3 +15,10 @@ String fmtNum(num? v, {int digits = 0, String unit = ''}) {
   final s = v.toStringAsFixed(digits).replaceAll('.', ',');
   return unit.isEmpty ? s : '$s $unit';
 }
+
+/// Odmiana liczebnika: plural(1, 'pobudzenie', 'pobudzenia', 'pobudzeń') -> '1 pobudzenie', 22 -> '22 pobudzenia'.
+String plural(int n, String one, String few, String many) {
+  final m10 = n % 10, m100 = n % 100;
+  final w = n == 1 ? one : (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14) ? few : many);
+  return '$n $w';
+}
