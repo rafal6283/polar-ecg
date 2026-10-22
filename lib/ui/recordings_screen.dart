@@ -6,6 +6,7 @@ import 'package:share_plus/share_plus.dart';
 
 import '../analysis/analysis_result.dart';
 import '../analysis/analyzer.dart';
+import '../export/exchange.dart';
 import '../recording/recorder.dart';
 import 'viewer/recording_screen.dart';
 
@@ -92,6 +93,18 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
     await SharePlus.instance.share(ShareParams(files: files, subject: 'Zapis EKG ${r.name}'));
   }
 
+  /// Plik z epizodami AF ze wszystkich zapisów do porównania w Kresce.
+  Future<void> _exportAf() async {
+    final x = await exportAfExchange();
+    if (!mounted) return;
+    final h = x.afTotal.inHours, m = x.afTotal.inMinutes % 60;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text('Zapisy: ${x.recordings} · epizody AF: ${x.episodes} ($h h $m min)'
+          '${x.skipped > 0 ? ' · pominięte (bez analizy): ${x.skipped}' : ''}'),
+    ));
+    await SharePlus.instance.share(ShareParams(files: [XFile(x.file.path)], subject: 'Polar EKG – migotanie przedsionków'));
+  }
+
   Future<void> _delete(_RecordingInfo r) async {
     final ok = await showDialog<bool>(
       context: context,
@@ -115,7 +128,9 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Zapisy')),
+      appBar: AppBar(title: const Text('Zapisy'), actions: [
+        IconButton(icon: const Icon(Icons.ios_share), tooltip: 'Eksport AF do Kreski', onPressed: _exportAf),
+      ]),
       body: FutureBuilder<List<_RecordingInfo>>(
         future: _items,
         builder: (context, snap) {
