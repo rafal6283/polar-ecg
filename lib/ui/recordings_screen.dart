@@ -6,6 +6,7 @@ import 'package:share_plus/share_plus.dart';
 
 import '../analysis/analysis_result.dart';
 import '../analysis/analyzer.dart';
+import '../export/exchange.dart';
 import '../recording/recorder.dart';
 import 'backup_actions.dart';
 import 'theme/app_theme.dart';
@@ -124,6 +125,18 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
     });
   }
 
+  /// Plik z epizodami AF ze wszystkich zapisów do porównania w Kresce.
+  Future<void> _exportAf() async {
+    final x = await exportAfExchange();
+    if (!mounted) return;
+    final h = x.afTotal.inHours, m = x.afTotal.inMinutes % 60;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text('Zapisy: ${x.recordings} · epizody AF: ${x.episodes} ($h h $m min)'
+          '${x.skipped > 0 ? ' · pominięte (bez aktualnej analizy): ${x.skipped}' : ''}'),
+    ));
+    await SharePlus.instance.share(ShareParams(files: [XFile(x.file.path)], subject: 'Polar EKG – migotanie przedsionków'));
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -145,6 +158,7 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
           : AppBar(
               title: const Text('Zapisy'),
               actions: [
+                IconButton(icon: const Icon(Icons.ios_share), tooltip: 'Eksport AF do Kreski', onPressed: _exportAf),
                 IconButton(
                   icon: const Icon(Icons.summarize_outlined),
                   tooltip: 'Raport zbiorczy PDF',

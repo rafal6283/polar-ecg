@@ -18,7 +18,8 @@ Użytek własny – nie jest to wyrób medyczny (licencja flutter_blue_plus: `Li
   (`rhythm_at.dart`), ocena szybkiego sprawdzenia (`rhythm_check.dart`), ręczne oznaczenia AF (`AfMark`,
   `af_marks.json` w zapisie – potwierdzone/odrzucone/dodane, pierwszeństwo przed automatem; dane do strojenia).
 - `lib/report/` PDF (`pdf_report.dart` pojedynczy zapis, `summary_report.dart` raport zbiorczy z wielu zapisów –
-  część tej samej biblioteki), `lib/export/` EDF+/CSV, `lib/alarms/`, `lib/settings/`, `lib/ui/`.
+  część tej samej biblioteki), `lib/export/` EDF+/CSV, `exchange.dart` – eksport epizodów AF do aplikacji Kreska
+  (format „wymiana-zdarzen” v1: okna zapisu + epizody AF w ms; przycisk w Zapisach), `lib/alarms/`, `lib/settings/`, `lib/ui/`.
 - Kopia zapasowa / eksport wielu zapisów: `lib/recording/backup.dart` (ZIP: `recordings/<zapis>/…` pliki źródłowe,
   `profile.json`, `hrv_morning.json`, `settings.json`, `manifest.json`; przywracanie nie nadpisuje istniejących
   zapisów ani profilu), akcje UI w `lib/ui/backup_actions.dart` (też raport zbiorczy).
