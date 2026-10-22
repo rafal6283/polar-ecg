@@ -31,23 +31,11 @@ android {
         versionName = flutter.versionName
     }
 
-    // Stały klucz w repozytorium: wersje z GitHuba i z komputera instalują się jako aktualizacje
-    // (użytek własny). Bez pliku klucza – klucz debug jak dotąd.
-    val keyFile = file("polar-ecg.jks")
-    signingConfigs {
-        if (keyFile.exists()) {
-            create("polar") {
-                storeFile = keyFile
-                storePassword = "polarekg123"
-                keyAlias = "polar-ecg"
-                keyPassword = "polarekg123"
-            }
-        }
-    }
-
     buildTypes {
         release {
-            signingConfig = signingConfigs.findByName("polar") ?: signingConfigs.getByName("debug")
+            // TODO: Add your own signing config for the release build.
+            // Signing with the debug keys for now, so `flutter run --release` works.
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
 }
