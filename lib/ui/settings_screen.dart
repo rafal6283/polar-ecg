@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:koofr_backup_ui/koofr_backup_ui.dart' show KoofrBackupTile;
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:path_provider/path_provider.dart';
 
@@ -150,6 +151,7 @@ class SettingsScreen extends StatelessWidget {
               ],
 
               const _Header('Dane'),
+              const KoofrBackupTile(),
               ListTile(
                 leading: const Icon(Icons.cloud_upload_outlined),
                 title: const Text('Kopia zapasowa'),
