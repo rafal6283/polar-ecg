@@ -28,7 +28,8 @@ class ExchangeExport {
   ExchangeExport(this.file, this.recordings, this.skipped, this.episodes, this.afTotal);
 }
 
-Future<ExchangeExport> exportAfExchange() async {
+/// Treść pliku wymiany (wszystkie zapisy) i statystyka: (bajty, zapisy, pominięte, epizody, czas AF).
+Future<(List<int>, int, int, int, Duration)> buildAfExchange() async {
   final root = await Recorder.recordingsRoot();
   final dirs = root.listSync().whereType<Directory>().toList()..sort((a, b) => a.path.compareTo(b.path));
   final windows = <Map<String, int>>[];
@@ -77,9 +78,7 @@ Future<ExchangeExport> exportAfExchange() async {
   }
 
   final now = DateTime.now();
-  String two(int v) => v.toString().padLeft(2, '0');
-  final out = File('${(await getTemporaryDirectory()).path}/polar-ekg-af-${now.year}-${two(now.month)}-${two(now.day)}.json');
-  await out.writeAsString(jsonEncode({
+  final bytes = utf8.encode(jsonEncode({
     'format': 'wymiana-zdarzen',
     'version': 1,
     'source': 'polar-ekg',
@@ -87,5 +86,14 @@ Future<ExchangeExport> exportAfExchange() async {
     'windows': windows,
     'events': events,
   }));
-  return ExchangeExport(out, used, skipped, events.length, Duration(milliseconds: afMs));
+  return (bytes, used, skipped, events.length, Duration(milliseconds: afMs));
+}
+
+Future<ExchangeExport> exportAfExchange() async {
+  final (bytes, used, skipped, episodes, af) = await buildAfExchange();
+  final now = DateTime.now();
+  String two(int v) => v.toString().padLeft(2, '0');
+  final out = File('${(await getTemporaryDirectory()).path}/polar-ekg-af-${now.year}-${two(now.month)}-${two(now.day)}.json');
+  await out.writeAsBytes(bytes);
+  return ExchangeExport(out, used, skipped, episodes, af);
 }

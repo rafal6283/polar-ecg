@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:koofr_backup_ui/koofr_backup_ui.dart';
 
 import '../settings/app_settings.dart';
+import '../export/exchange.dart' show buildAfExchange;
 import 'backup.dart' show recordingSourceFiles;
 import 'recorder.dart';
 
@@ -26,6 +27,9 @@ class PolarBackup extends BackupAdapter {
       'Profil osobisty i pomiary poranne — tylko, jeśli na tym telefonie ich nie ma.';
   @override
   bool get busy => currentRecording() != null;
+
+  @override
+  ExchangeAdapter get exchange => _PolarExchange();
 
   @override
   Future<BackupContent> export() async {
@@ -90,5 +94,17 @@ class PolarBackup extends BackupAdapter {
     }
     final s = j['settings'];
     if (s is Map) await AppSettings.instance.applyJson(s.cast<String, Object?>());
+  }
+}
+
+/// Epizody AF do Kreski i Doby przez Koofr (zamiast ręcznego eksportu pliku).
+class _PolarExchange extends ExchangeAdapter {
+  @override
+  String get publishes => 'Epizody migotania przedsionków (AF) z przeanalizowanych zapisów — dla Kreski i Doby';
+
+  @override
+  Future<Map<String, List<int>?>> export() async {
+    final (bytes, _, _, _, _) = await buildAfExchange();
+    return {'polar-ekg': bytes};
   }
 }
