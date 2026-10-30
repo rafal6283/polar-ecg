@@ -24,6 +24,10 @@ class AppSettings extends ChangeNotifier {
   double tachyBpm = 120;
   double afMinSeconds = 30;
   bool usePersonal = true;
+  // Progi AF dopasowane do oznaczeń użytkownika (null = nie dopasowano)
+  bool afPersonalOn = true;
+  double? afPersonalCosen;
+  double? afPersonalPCorr;
 
   // Alarmy w czasie rzeczywistym
   bool alarmsEnabled = false;
@@ -48,6 +52,9 @@ class AppSettings extends ChangeNotifier {
     tachyBpm = p.getDouble('tachyBpm') ?? tachyBpm;
     afMinSeconds = p.getDouble('afMinSeconds') ?? afMinSeconds;
     usePersonal = p.getBool('usePersonal') ?? usePersonal;
+    afPersonalOn = p.getBool('afPersonalOn') ?? afPersonalOn;
+    afPersonalCosen = p.getDouble('afPersonalCosen');
+    afPersonalPCorr = p.getDouble('afPersonalPCorr');
     alarmsEnabled = p.getBool('alarmsEnabled') ?? alarmsEnabled;
     alarmHrHigh = p.getDouble('alarmHrHigh') ?? alarmHrHigh;
     alarmHrLow = p.getDouble('alarmHrLow') ?? alarmHrLow;
@@ -76,6 +83,9 @@ class AppSettings extends ChangeNotifier {
       p.setDouble('tachyBpm', tachyBpm),
       p.setDouble('afMinSeconds', afMinSeconds),
       p.setBool('usePersonal', usePersonal),
+      p.setBool('afPersonalOn', afPersonalOn),
+      if (afPersonalCosen != null) p.setDouble('afPersonalCosen', afPersonalCosen!) else p.remove('afPersonalCosen'),
+      if (afPersonalPCorr != null) p.setDouble('afPersonalPCorr', afPersonalPCorr!) else p.remove('afPersonalPCorr'),
       p.setBool('alarmsEnabled', alarmsEnabled),
       p.setDouble('alarmHrHigh', alarmHrHigh),
       p.setDouble('alarmHrLow', alarmHrLow),
@@ -93,7 +103,8 @@ class AppSettings extends ChangeNotifier {
   Map<String, Object?> toJson() => {
         'name': name, 'birthYear': birthYear, 'sex': sex, 'accEnabled': accEnabled,
         'pauseSeconds': pauseSeconds, 'bradyBpm': bradyBpm, 'tachyBpm': tachyBpm, 'afMinSeconds': afMinSeconds,
-        'usePersonal': usePersonal, 'alarmsEnabled': alarmsEnabled, 'alarmHrHigh': alarmHrHigh,
+        'usePersonal': usePersonal, 'afPersonalOn': afPersonalOn, 'afPersonalCosen': afPersonalCosen,
+        'afPersonalPCorr': afPersonalPCorr, 'alarmsEnabled': alarmsEnabled, 'alarmHrHigh': alarmHrHigh,
         'alarmHrLow': alarmHrLow, 'alarmPause': alarmPause, 'alarmAf': alarmAf, 'alarmVt': alarmVt, 'alarmContact': alarmContact,
         'alarmSound': alarmSound, 'alarmVibrate': alarmVibrate, 'alarmCooldownMin': alarmCooldownMin,
       };
@@ -111,6 +122,9 @@ class AppSettings extends ChangeNotifier {
         s.tachyBpm = d('tachyBpm') ?? s.tachyBpm;
         s.afMinSeconds = d('afMinSeconds') ?? s.afMinSeconds;
         s.usePersonal = v<bool>('usePersonal') ?? s.usePersonal;
+        s.afPersonalOn = v<bool>('afPersonalOn') ?? s.afPersonalOn;
+        if (j.containsKey('afPersonalCosen')) s.afPersonalCosen = d('afPersonalCosen');
+        if (j.containsKey('afPersonalPCorr')) s.afPersonalPCorr = d('afPersonalPCorr');
         s.alarmsEnabled = v<bool>('alarmsEnabled') ?? s.alarmsEnabled;
         s.alarmHrHigh = d('alarmHrHigh') ?? s.alarmHrHigh;
         s.alarmHrLow = d('alarmHrLow') ?? s.alarmHrLow;
@@ -128,11 +142,19 @@ class AppSettings extends ChangeNotifier {
   /// Górna granica QTc zależna od płci (mężczyźni 450, kobiety 460 ms).
   double get qtcUpper => sex == 'M' ? 450 : 460;
 
-  AnalysisSettings get analysis => AnalysisSettings(
-        pauseSeconds: pauseSeconds,
-        bradyBpm: bradyBpm,
-        tachyBpm: tachyBpm,
-        afMinSeconds: afMinSeconds,
-        usePersonal: usePersonal,
-      );
+  /// Czy obowiązują progi AF dopasowane do oznaczeń użytkownika.
+  bool get afPersonalActive => afPersonalOn && afPersonalCosen != null && afPersonalPCorr != null;
+
+  AnalysisSettings get analysis {
+    const d = AnalysisSettings();
+    return AnalysisSettings(
+      pauseSeconds: pauseSeconds,
+      bradyBpm: bradyBpm,
+      tachyBpm: tachyBpm,
+      afMinSeconds: afMinSeconds,
+      usePersonal: usePersonal,
+      afCosen: afPersonalActive ? afPersonalCosen! : d.afCosen,
+      afPCorr: afPersonalActive ? afPersonalPCorr! : d.afPCorr,
+    );
+  }
 }

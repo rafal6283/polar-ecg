@@ -9,6 +9,7 @@ import '../alarms/alarm_service.dart';
 import '../analysis/analyzer.dart';
 import '../analysis/personal_profile.dart';
 import '../settings/app_settings.dart';
+import 'af_personal_tile.dart';
 import 'backup_actions.dart';
 import 'legend_screen.dart';
 import 'theme/app_theme.dart';
@@ -92,6 +93,7 @@ class SettingsScreen extends StatelessWidget {
                 subtitle: const Text('Usuwa zapamiętane wzorce i przykłady z poprawek.'),
                 onTap: () => _clearProfile(context),
               ),
+              AfPersonalSection(settings: s),
               const ListTile(
                 dense: true,
                 subtitle: Text('Zmiany progów analizy obowiązują dla nowych analiz – w zapisie użyj „Analizuj ponownie”.'),

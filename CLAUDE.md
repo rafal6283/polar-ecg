@@ -126,6 +126,12 @@ DS2 VEB 87.0/86.2, SVEB 16.7/62.6 – odrzucona (więcej fałszywych V: N→V 37
   okna RR opaski oznaczają AF na całej długości. `afExtend` = 0 (z nowym modelem ltafdb 691 fałszywych
   epizodów zamiast 589). Napad: 22:56:10–22:56:46 (w dzienniku „trwał już przy rozpoczęciu zapisu”).
 
+- v1.11.0: progi AF pod użytkownika (`af_personal.dart`): analiza zapisuje `af_windows.json` (okna 32 RR:
+  Dash, COSEn, mediana korelacji P); „Dopasuj teraz” w Ustawieniach zbiera okna pod `af_marks.json` ze wszystkich
+  zapisów, siatka afCosen −1.6…−0.4 × afPCorr 0.30…0.70, zrównoważona trafność; przyjmowane tylko przy ≥ 10 oknach
+  z AF i bez AF, oznaczeniach obu rodzajów i zysku ≥ 5 pkt; hamulec: okna zwykłego rytmu (≥ 5 min od oznaczeń,
+  domyślnie nie-AF) nie mogą stać się AF w > 1%. Domyślne progi bez zmian (wyniki baz bez zmian).
+
 ## Następne kroki (otwarte)
 - Więcej zapisów H10 z potwierdzonymi/oznaczonymi napadami AF; potwierdzić epizod 22:56 z użytkownikiem.
 - Personalizacja AF z oznaczeń użytkownika (`af_marks.json`, potwierdzone/odrzucone napady) – gdy będzie ich
