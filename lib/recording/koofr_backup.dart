@@ -15,6 +15,18 @@ class PolarBackup extends BackupAdapter {
   final Directory? Function() currentRecording;
   PolarBackup(this.currentRecording);
 
+  /// Zapis, w którym coś zmieniło się w ostatnim [within] (prawdopodobnie trwa nagrywanie).
+  static Future<Directory?> recentlyWritten(Duration within) async {
+    final root = await Recorder.recordingsRoot();
+    final now = DateTime.now();
+    for (final d in root.listSync().whereType<Directory>()) {
+      for (final f in d.listSync().whereType<File>()) {
+        if (now.difference(f.lastModifiedSync()) < within) return d;
+      }
+    }
+    return null;
+  }
+
   @override
   String get appId => 'polar-ekg';
   @override

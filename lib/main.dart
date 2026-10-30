@@ -1,13 +1,22 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 
-import 'package:koofr_backup_ui/koofr_backup_ui.dart' show KoofrBackup;
+import 'package:koofr_backup_ui/koofr_backup_ui.dart' show KoofrBackground, KoofrBackup;
 
 import 'app_controller.dart';
 import 'recording/koofr_backup.dart';
 import 'settings/app_settings.dart';
 import 'ui/home_screen.dart';
 import 'ui/theme/app_theme.dart';
+
+/// Kopia i wysyłka epizodów AF na Koofr w tle (Android). Zapis w toku (pliki zmienione w ostatnich
+/// 3 minutach) wstrzymuje pracę w tle — wtedy kopia poczeka do zakończenia nagrywania.
+@pragma('vm:entry-point')
+void koofrCallback() => KoofrBackground.dispatch(() async {
+      await AppSettings.instance.load();
+      final recording = await PolarBackup.recentlyWritten(const Duration(minutes: 3));
+      return PolarBackup(() => recording);
+    });
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -17,7 +26,9 @@ Future<void> main() async {
   await settings.load();
   final controller = AppController(settings);
   // kopia na Koofr w tle (pomija zapis w toku)
-  KoofrBackup.setup(PolarBackup(() => controller.recorder?.dir)).ignore();
+  KoofrBackup.setup(PolarBackup(() => controller.recorder?.dir))
+      .then((_) => KoofrBackground.start(koofrCallback))
+      .ignore();
   runApp(PolarEcgApp(controller: controller));
 }
 
