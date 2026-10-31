@@ -11,6 +11,7 @@ import '../recording/recorder.dart';
 import '../settings/app_settings.dart';
 import 'theme/app_theme.dart';
 import 'af_diary_card.dart';
+import 'af_triggers_card.dart';
 import 'viewer/format.dart';
 
 class _Metric {
@@ -126,6 +127,7 @@ class _TrendsScreenState extends State<TrendsScreen> {
                     ),
                   ),
                 AfDiaryCard(rows: _rows),
+                AfTriggersCard(rows: _rows, hrv: _hrv),
                 const SectionLabel('Parametry w czasie'),
                 Wrap(spacing: 6, runSpacing: 6, children: [
                   for (var i = 0; i < _metrics.length; i++)

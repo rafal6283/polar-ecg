@@ -132,6 +132,11 @@ DS2 VEB 87.0/86.2, SVEB 16.7/62.6 – odrzucona (więcej fałszywych V: N→V 37
   z AF i bez AF, oznaczeniach obu rodzajów i zysku ≥ 5 pkt; hamulec: okna zwykłego rytmu (≥ 5 min od oznaczeń,
   domyślnie nie-AF) nie mogą stać się AF w > 1%. Domyślne progi bez zmian (wyniki baz bez zmian).
 
+- v1.12.0: „Co poprzedza napady” (`af_triggers.dart`, karta w Trendach): dni z obserwacją (≥ 4 h zapisu albo
+  okres prowadzenia zdarzenia AFIB w Kresce) z napadem i bez wobec czynników: sen (Rytm Snu, `czynniki-sen`),
+  posiłki (Dziennik talerza, `czynniki-posilki`), ruch (Doba, `czynniki-ruch`), poranne HRV. Pliki „czynniki-dnia” v1
+  i `kreska-z-*` pobierane przez Koofr do `<dane aplikacji>/wymiana/`. Wyróżnienie: ≥ 2× częściej, 3+ dni, 2+ napady.
+
 ## Następne kroki (otwarte)
 - Więcej zapisów H10 z potwierdzonymi/oznaczonymi napadami AF; potwierdzić epizod 22:56 z użytkownikiem.
 - Personalizacja AF z oznaczeń użytkownika (`af_marks.json`, potwierdzone/odrzucone napady) – gdy będzie ich

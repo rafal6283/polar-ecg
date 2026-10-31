@@ -1,8 +1,10 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:koofr_backup_ui/koofr_backup_ui.dart';
 
+import '../analysis/af_triggers.dart' show exchangeDir;
 import '../settings/app_settings.dart';
 import '../export/exchange.dart' show buildAfExchange;
 import 'backup.dart' show recordingSourceFiles;
@@ -115,8 +117,21 @@ class _PolarExchange extends ExchangeAdapter {
   String get publishes => 'Epizody migotania przedsionków (AF) z przeanalizowanych zapisów — dla Kreski i Doby';
 
   @override
+  List<(String, String)> get sources => const [
+        ('czynniki', 'Sen, posiłki i ruch (Rytm Snu, Dziennik talerza, Doba) – co poprzedza napady AF'),
+        ('kreska-z', 'Kreska (zdarzenie AFIB)'),
+      ];
+
+  @override
   Future<Map<String, List<int>?>> export() async {
     final (bytes, _, _, _, _) = await buildAfExchange();
     return {'polar-ekg': bytes};
+  }
+
+  @override
+  Future<void> import(String name, Uint8List data) async {
+    if (name.contains('/') || name.contains('..')) return;
+    final dir = await exchangeDir((await Recorder.recordingsRoot()).parent);
+    await File('${dir.path}/$name.json').writeAsBytes(data, flush: true);
   }
 }
