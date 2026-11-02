@@ -5,6 +5,7 @@ import 'package:koofr_backup_ui/koofr_backup_ui.dart' show KoofrBackground, Koof
 
 import 'app_controller.dart';
 import 'recording/koofr_backup.dart';
+import 'health/health_connect.dart';
 import 'settings/app_settings.dart';
 import 'ui/home_screen.dart';
 import 'ui/theme/app_theme.dart';
@@ -29,6 +30,8 @@ Future<void> main() async {
   KoofrBackup.setup(PolarBackup(() => controller.recorder?.dir))
       .then((_) => KoofrBackground.start(koofrCallback))
       .ignore();
+  // tętno i HRV z nowych zapisów do Health Connect (gdy włączone)
+  Future<void>.delayed(const Duration(seconds: 20), HealthConnect.pushPending).ignore();
   runApp(PolarEcgApp(controller: controller));
 }
 

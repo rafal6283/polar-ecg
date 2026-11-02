@@ -6,6 +6,7 @@ import 'dart:typed_data';
 
 import 'af_episodes.dart';
 import 'analysis_result.dart';
+import 'night_minutes.dart';
 import 'beat_model.g.dart';
 import 'ecg_recording.dart';
 import 'filters.dart';
@@ -287,6 +288,7 @@ Future<AnalysisResult> analyzeRecordingDir(String path, {AnalysisSettings settin
   await File('${dir.path}/$analysisFile').writeAsString(jsonEncode(out.result.toJson()));
   await File('${dir.path}/$summaryFile').writeAsString(jsonEncode(recordingSummary(out.result, recording: _dirName(dir))));
   await File('${dir.path}/$afWindowsFile').writeAsString(jsonEncode([for (final w in out.afWindows) w.toJson()]));
+  await File('${dir.path}/$minutesFile').writeAsString(jsonEncode(minuteSummary(out.result, rec.activity)));
 
   // Nauka profilu: wzorce z dobrych zapisów, przykłady z ręcznych poprawek.
   if (settings.usePersonal) {

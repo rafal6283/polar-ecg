@@ -1,5 +1,6 @@
 package pl.fourvision.polar_ecg
 
-import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.android.FlutterFragmentActivity
 
-class MainActivity : FlutterActivity()
+// FlutterFragmentActivity – wymagane przez Health Connect (okno zgód)
+class MainActivity : FlutterFragmentActivity()

@@ -5,6 +5,8 @@ import 'dart:typed_data';
 import 'package:koofr_backup_ui/koofr_backup_ui.dart';
 
 import '../analysis/af_triggers.dart' show exchangeDir;
+import '../analysis/analyzer.dart' show analyzeInBackground;
+import '../analysis/night_minutes.dart';
 import '../settings/app_settings.dart';
 import '../export/exchange.dart' show buildAfExchange;
 import 'backup.dart' show recordingSourceFiles;
@@ -111,10 +113,50 @@ class PolarBackup extends BackupAdapter {
   }
 }
 
+/// Zapisy z ostatnich 21 dni (≥ 2 h) minuta po minucie – dla Rytmu Snu, gdy opaska była połączona
+/// tylko z Polar EKG: tętno, HRV, ruch tułowia, pobudzenia dodatkowe, AF, pauzy.
+Future<List<int>> buildNightExchange() async {
+  final root = await Recorder.recordingsRoot();
+  final since = DateTime.now().subtract(const Duration(days: 21)).millisecondsSinceEpoch;
+  final recs = <Map<String, Object?>>[];
+  var reanalyzed = 0;
+  for (final d in root.listSync().whereType<Directory>()) {
+    var m = await loadMinuteSummary(d.path);
+    // zapisy przeanalizowane starszą wersją: podsumowanie minutowe powstaje przy ponownej analizie
+    if (m == null && reanalyzed < 3 && await File('${d.path}/ecg.bin').exists() &&
+        (await File('${d.path}/ecg.bin').lastModified()).millisecondsSinceEpoch >= since &&
+        await File('${d.path}/ecg.bin').length() > 130 * 3 * 3600) {
+      try {
+        reanalyzed++;
+        await analyzeInBackground(d.path, AppSettings.instance.analysis);
+        m = await loadMinuteSummary(d.path);
+      } catch (_) {}
+    }
+    final mins = m?['minutes'] as List?;
+    if (m == null || mins == null || mins.length < 120) continue;
+    if (((m['started_ms'] as num?) ?? 0) < since) continue;
+    recs.add({
+      'start': m['started_ms'],
+      'end': (mins.last as List).first,
+      'minutes': mins,
+      'pauses': m['pauses'] ?? const [],
+    });
+  }
+  recs.sort((a, b) => (a['start'] as num).compareTo(b['start'] as num));
+  return utf8.encode(jsonEncode({
+    'format': 'noc-polar',
+    'version': 1,
+    'source': 'polar-ekg',
+    'exported_at': DateTime.now().millisecondsSinceEpoch,
+    'columns': ['t', 'hr', 'rmssd', 'act', 's', 'v', 'af'],
+    'recordings': recs,
+  }));
+}
+
 /// Epizody AF do Kreski i Doby przez Koofr (zamiast ręcznego eksportu pliku).
 class _PolarExchange extends ExchangeAdapter {
   @override
-  String get publishes => 'Epizody migotania przedsionków (AF) z przeanalizowanych zapisów — dla Kreski i Doby';
+  String get publishes => 'Epizody migotania przedsionków (AF) dla Kreski i Doby; noce minuta po minucie (tętno, HRV, ruch) dla Rytmu Snu';
 
   @override
   List<(String, String)> get sources => const [
@@ -125,7 +167,7 @@ class _PolarExchange extends ExchangeAdapter {
   @override
   Future<Map<String, List<int>?>> export() async {
     final (bytes, _, _, _, _) = await buildAfExchange();
-    return {'polar-ekg': bytes};
+    return {'polar-ekg': bytes, 'polar-noce': await buildNightExchange()};
   }
 
   @override

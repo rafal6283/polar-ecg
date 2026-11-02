@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 import '../alarms/alarm_service.dart';
 import '../analysis/analyzer.dart';
 import '../analysis/personal_profile.dart';
+import '../health/health_connect.dart';
 import '../settings/app_settings.dart';
 import 'af_personal_tile.dart';
 import 'backup_actions.dart';
@@ -154,6 +155,30 @@ class SettingsScreen extends StatelessWidget {
 
               const _Header('Dane'),
               const KoofrBackupTile(),
+              if (HealthConnect.supported)
+                SwitchListTile(
+                  secondary: const Icon(Icons.monitor_heart_outlined),
+                  title: const Text('Health Connect'),
+                  subtitle: const Text('Zapisuje tętno minuta po minucie, HRV i tętno spoczynkowe z porannych pomiarów. '
+                      'Inne aplikacje (np. Rytm Snu z „Dane z zegarka”) widzą je bez Koofr.'),
+                  value: s.healthConnect,
+                  onChanged: (v) async {
+                    if (v) {
+                      final err = await HealthConnect.connect();
+                      if (err != null) {
+                        if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err)));
+                        return;
+                      }
+                    }
+                    await set((x) => x.healthConnect = v);
+                    if (v) {
+                      final n = await HealthConnect.pushPending();
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Wysłano do Health Connect zapisów: $n')));
+                      }
+                    }
+                  },
+                ),
               ListTile(
                 leading: const Icon(Icons.cloud_upload_outlined),
                 title: const Text('Kopia zapasowa'),

@@ -29,6 +29,9 @@ class AppSettings extends ChangeNotifier {
   double? afPersonalCosen;
   double? afPersonalPCorr;
 
+  // Health Connect (Android): zapis tętna i HRV
+  bool healthConnect = false;
+
   // Alarmy w czasie rzeczywistym
   bool alarmsEnabled = false;
   double alarmHrHigh = 150;
@@ -55,6 +58,7 @@ class AppSettings extends ChangeNotifier {
     afPersonalOn = p.getBool('afPersonalOn') ?? afPersonalOn;
     afPersonalCosen = p.getDouble('afPersonalCosen');
     afPersonalPCorr = p.getDouble('afPersonalPCorr');
+    healthConnect = p.getBool('healthConnect') ?? healthConnect;
     alarmsEnabled = p.getBool('alarmsEnabled') ?? alarmsEnabled;
     alarmHrHigh = p.getDouble('alarmHrHigh') ?? alarmHrHigh;
     alarmHrLow = p.getDouble('alarmHrLow') ?? alarmHrLow;
@@ -84,6 +88,7 @@ class AppSettings extends ChangeNotifier {
       p.setDouble('afMinSeconds', afMinSeconds),
       p.setBool('usePersonal', usePersonal),
       p.setBool('afPersonalOn', afPersonalOn),
+      p.setBool('healthConnect', healthConnect),
       if (afPersonalCosen != null) p.setDouble('afPersonalCosen', afPersonalCosen!) else p.remove('afPersonalCosen'),
       if (afPersonalPCorr != null) p.setDouble('afPersonalPCorr', afPersonalPCorr!) else p.remove('afPersonalPCorr'),
       p.setBool('alarmsEnabled', alarmsEnabled),
@@ -104,7 +109,7 @@ class AppSettings extends ChangeNotifier {
         'name': name, 'birthYear': birthYear, 'sex': sex, 'accEnabled': accEnabled,
         'pauseSeconds': pauseSeconds, 'bradyBpm': bradyBpm, 'tachyBpm': tachyBpm, 'afMinSeconds': afMinSeconds,
         'usePersonal': usePersonal, 'afPersonalOn': afPersonalOn, 'afPersonalCosen': afPersonalCosen,
-        'afPersonalPCorr': afPersonalPCorr, 'alarmsEnabled': alarmsEnabled, 'alarmHrHigh': alarmHrHigh,
+        'afPersonalPCorr': afPersonalPCorr, 'healthConnect': healthConnect, 'alarmsEnabled': alarmsEnabled, 'alarmHrHigh': alarmHrHigh,
         'alarmHrLow': alarmHrLow, 'alarmPause': alarmPause, 'alarmAf': alarmAf, 'alarmVt': alarmVt, 'alarmContact': alarmContact,
         'alarmSound': alarmSound, 'alarmVibrate': alarmVibrate, 'alarmCooldownMin': alarmCooldownMin,
       };
@@ -123,6 +128,7 @@ class AppSettings extends ChangeNotifier {
         s.afMinSeconds = d('afMinSeconds') ?? s.afMinSeconds;
         s.usePersonal = v<bool>('usePersonal') ?? s.usePersonal;
         s.afPersonalOn = v<bool>('afPersonalOn') ?? s.afPersonalOn;
+        s.healthConnect = v<bool>('healthConnect') ?? s.healthConnect;
         if (j.containsKey('afPersonalCosen')) s.afPersonalCosen = d('afPersonalCosen');
         if (j.containsKey('afPersonalPCorr')) s.afPersonalPCorr = d('afPersonalPCorr');
         s.alarmsEnabled = v<bool>('alarmsEnabled') ?? s.alarmsEnabled;
