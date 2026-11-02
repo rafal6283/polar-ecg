@@ -34,7 +34,8 @@ Użytek własny – nie jest to wyrób medyczny (licencja flutter_blue_plus: `Li
   N/S/V/Q, AF, ok/ostrzeżenie/alarm, papier EKG) i wspólne komponenty (`MetricTile`, `MetricGrid`, `StatusPill`,
   `SectionLabel`). Nie wpisywać kolorów na sztywno w ekranach. Nawigacja dolna: Monitor / Zapisy / Trendy / Ustawienia.
 - Zrzuty ekranów bez telefonu: `SCREENSHOTS=<katalog> flutter test test/screenshots_test.dart` (Roboto + ikony
-  Material, syntetyczne EKG; bez zmiennej test pominięty). Ikony aplikacji (Android legacy/adaptacyjna/
+  Material, syntetyczne EKG; bez zmiennej test pominięty). W CI zrzuty idą jako artefakt „zrzuty-ekranow” (też w pozostałych
+  aplikacjach Fluttera: `test/screenshots_test.dart` – każda zakładka, motyw jasny i ciemny). Ikony aplikacji (Android legacy/adaptacyjna/
   monochromatyczna, iOS, ekran startowy): `flutter test tool/icons/icon_test.dart`.
 - `tool/` – narzędzia PC: `mitbih_eval.dart`, `train_classifier.dart`, `analyze.dart`, `strips_png.dart`,
   `template_png.dart`, `pdf_demo.dart`; walidacja: `af_eval.dart` (afdb/ltafdb), `st_eval.dart` (edb),
