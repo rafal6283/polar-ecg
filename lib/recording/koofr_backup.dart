@@ -6,6 +6,8 @@ import 'package:koofr_backup_ui/koofr_backup_ui.dart';
 
 import '../analysis/af_triggers.dart' show exchangeDir;
 import '../analysis/analyzer.dart' show analyzeInBackground;
+import '../analysis/af_episodes.dart';
+import '../analysis/hrv_session.dart';
 import '../analysis/night_minutes.dart';
 import '../settings/app_settings.dart';
 import '../export/exchange.dart' show buildAfExchange;
@@ -153,6 +155,38 @@ Future<List<int>> buildNightExchange() async {
   }));
 }
 
+/// Poranne HRV i minuty AF dzień po dniu („czynniki-dnia” v1) – do podsumowania tygodnia w Dobie.
+Future<List<int>> buildDayFactors() async {
+  final root = await Recorder.recordingsRoot();
+  final days = <String, Map<String, num>>{};
+  String iso(DateTime d) => '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+  for (final h in await HrvHistory.load(root.parent)) {
+    if (h.reliable) (days[iso(h.time)] ??= {})['hrv'] = double.parse(h.rmssd.toStringAsFixed(1));
+  }
+  for (final d in root.listSync().whereType<Directory>()) {
+    final f = File('${d.path}/summary.json');
+    if (!f.existsSync()) continue;
+    try {
+      final j = jsonDecode(await f.readAsString()) as Map<String, dynamic>;
+      for (final e in (j['af_episodes'] as List? ?? const [])) {
+        final ep = AfEpisode.fromJson(e as Map<String, dynamic>);
+        final k = iso(ep.start);
+        final m = days[k] ??= {};
+        m['af_min'] = (m['af_min'] ?? 0) + ep.duration.inSeconds / 60;
+        m['af_n'] = (m['af_n'] ?? 0) + 1;
+      }
+    } catch (_) {}
+  }
+  final keys = days.keys.toList()..sort();
+  return utf8.encode(jsonEncode({
+    'format': 'czynniki-dnia',
+    'version': 1,
+    'source': 'polar-ekg',
+    'exported_at': DateTime.now().millisecondsSinceEpoch,
+    'days': [for (final k in keys) {'date': k, ...days[k]!}],
+  }));
+}
+
 /// Epizody AF do Kreski i Doby przez Koofr (zamiast ręcznego eksportu pliku).
 class _PolarExchange extends ExchangeAdapter {
   @override
@@ -167,7 +201,7 @@ class _PolarExchange extends ExchangeAdapter {
   @override
   Future<Map<String, List<int>?>> export() async {
     final (bytes, _, _, _, _) = await buildAfExchange();
-    return {'polar-ekg': bytes, 'polar-noce': await buildNightExchange()};
+    return {'polar-ekg': bytes, 'polar-noce': await buildNightExchange(), 'czynniki-polar': await buildDayFactors()};
   }
 
   @override
