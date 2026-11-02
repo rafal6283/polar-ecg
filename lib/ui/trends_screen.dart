@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
+import 'package:rodzina_wykresy/rodzina_wykresy.dart' show InteractiveLineChart, LineSeries, ChartPoint;
 
 import '../analysis/analysis_result.dart';
 import '../analysis/analyzer.dart';
@@ -37,6 +38,15 @@ const _metrics = [
 ];
 
 /// Trendy parametrów z wielu zapisów w czasie.
+/// Typowa wartość: średnia ± odch. std. z 7 ostatnich pomiarów (przed ostatnim).
+(double, double)? _personalBand(List<(DateTime, double)> pts) {
+  if (pts.length < 4) return null;
+  final prev = pts.sublist(max(0, pts.length - 8), pts.length - 1).map((p) => p.$2).toList();
+  final m = prev.reduce((a, b) => a + b) / prev.length;
+  final sd = sqrt(prev.map((v) => (v - m) * (v - m)).reduce((a, b) => a + b) / prev.length);
+  return (m - sd, m + sd);
+}
+
 class TrendsScreen extends StatefulWidget {
   const TrendsScreen({super.key});
 
@@ -137,7 +147,7 @@ class _TrendsScreenState extends State<TrendsScreen> {
                 if (m.key == 'hrv_guided')
                   Text(
                     'Wyniki prowadzonego pomiaru (Monitor → Poranny pomiar HRV); tylko wiarygodne pomiary. '
-                    'Pasmo – Twoja typowa wartość (średnia ± odch. std. z 7 poprzednich pomiarów).',
+                    'Pasmo – Twoja typowa wartość (średnia ± odch. std. z 7 ostatnich pomiarów). Przesuń palcem po wykresie.',
                     style: t.bodySmall,
                   )
                 else if (m.morningOnly)
@@ -157,12 +167,16 @@ class _TrendsScreenState extends State<TrendsScreen> {
                     ),
                   )
                 else
-                  SizedBox(
-                    height: 220,
-                    child: CustomPaint(
-                      painter: _TrendPainter(pts, Theme.of(context).colorScheme, band: m.morningOnly),
-                      size: Size.infinite,
-                    ),
+                  InteractiveLineChart(
+                    series: [
+                      LineSeries(m.label, Theme.of(context).colorScheme.primary, [for (final (d, v) in pts) ChartPoint(d, v)],
+                          area: true, dots: pts.length <= 60),
+                    ],
+                    band: m.morningOnly || m.key == 'hrv_guided' ? _personalBand(pts) : null,
+                    bandLabel: 'Twoja norma',
+                    yFormat: (v) => fmtNum(v, digits: m.digits),
+                    xFormat: (d) => '${fmtDate(d)} ${fmtClock(d).substring(0, 5)}',
+                    height: 230,
                   ),
                 const SizedBox(height: 12),
                 for (final (d, v) in pts.reversed)
@@ -175,81 +189,4 @@ class _TrendsScreenState extends State<TrendsScreen> {
             ),
     );
   }
-}
-
-class _TrendPainter extends CustomPainter {
-  final List<(DateTime, double)> pts;
-  final ColorScheme scheme;
-  final bool band;
-
-  _TrendPainter(this.pts, this.scheme, {this.band = false});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    const left = 40.0, bottom = 22.0;
-    final w = size.width - left, h = size.height - bottom;
-    final t0 = pts.first.$1.millisecondsSinceEpoch.toDouble();
-    final t1 = max(t0 + 1, pts.last.$1.millisecondsSinceEpoch.toDouble());
-    var lo = pts.map((p) => p.$2).reduce(min), hi = pts.map((p) => p.$2).reduce(max);
-    final pad = max(1.0, (hi - lo) * 0.15);
-    lo -= pad;
-    hi += pad;
-    double x(DateTime d) => left + (d.millisecondsSinceEpoch - t0) / (t1 - t0) * w;
-    double y(double v) => h - (v - lo) / (hi - lo) * h;
-
-    final grid = Paint()..color = scheme.outlineVariant..strokeWidth = 0.6;
-    for (var k = 0; k <= 4; k++) {
-      final v = lo + (hi - lo) * k / 4;
-      canvas.drawLine(Offset(left, y(v)), Offset(size.width, y(v)), grid);
-      _text(canvas, v.toStringAsFixed(v.abs() < 10 ? 1 : 0), Offset(2, y(v) - 7));
-    }
-    _text(canvas, fmtDate(pts.first.$1), Offset(left, h + 4));
-    _text(canvas, fmtDate(pts.last.$1), Offset(size.width - 62, h + 4));
-
-    // Pasmo normy osobistej (średnia ± SD z 7 poprzednich pomiarów).
-    if (band) {
-      final path = Path(), lower = <Offset>[];
-      var started = false;
-      for (var i = 3; i < pts.length; i++) {
-        final prev = pts.sublist(max(0, i - 7), i).map((p) => p.$2).toList();
-        final m = prev.reduce((a, b) => a + b) / prev.length;
-        final sd = sqrt(prev.map((v) => (v - m) * (v - m)).reduce((a, b) => a + b) / prev.length);
-        final px = x(pts[i].$1);
-        if (!started) {
-          path.moveTo(px, y(m + sd));
-          started = true;
-        } else {
-          path.lineTo(px, y(m + sd));
-        }
-        lower.add(Offset(px, y(m - sd)));
-      }
-      if (started) {
-        for (final o in lower.reversed) {
-          path.lineTo(o.dx, o.dy);
-        }
-        path.close();
-        canvas.drawPath(path, Paint()..color = scheme.primary.withValues(alpha: 0.15));
-      }
-    }
-
-    final line = Path()..moveTo(x(pts.first.$1), y(pts.first.$2));
-    for (final p in pts.skip(1)) {
-      line.lineTo(x(p.$1), y(p.$2));
-    }
-    canvas.drawPath(line, Paint()..color = scheme.primary..strokeWidth = 2..style = PaintingStyle.stroke);
-    for (final p in pts) {
-      canvas.drawCircle(Offset(x(p.$1), y(p.$2)), 3.5, Paint()..color = scheme.primary);
-    }
-  }
-
-  void _text(Canvas c, String s, Offset o) {
-    final tp = TextPainter(
-      text: TextSpan(text: s, style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 10)),
-      textDirection: TextDirection.ltr,
-    )..layout();
-    tp.paint(c, o);
-  }
-
-  @override
-  bool shouldRepaint(covariant _TrendPainter old) => old.pts != pts;
 }

@@ -48,6 +48,10 @@ dependencies:
     git:
       url: https://github.com/rafal6283/nocny-licznik
       path: packages/koofr_backup_ui
+  rodzina_wykresy:
+    git:
+      url: https://github.com/rafal6283/nocny-licznik
+      path: packages/rodzina_wykresy
 
 dev_dependencies:
   flutter_test:
