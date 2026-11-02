@@ -6,6 +6,7 @@ import 'package:koofr_backup_ui/koofr_backup_ui.dart' show KoofrBackground, Koof
 import 'app_controller.dart';
 import 'recording/koofr_backup.dart';
 import 'health/health_connect.dart';
+import 'ui/home_widget_sync.dart';
 import 'settings/app_settings.dart';
 import 'ui/home_screen.dart';
 import 'ui/theme/app_theme.dart';
@@ -32,6 +33,7 @@ Future<void> main() async {
       .ignore();
   // tętno i HRV z nowych zapisów do Health Connect (gdy włączone)
   Future<void>.delayed(const Duration(seconds: 20), HealthConnect.pushPending).ignore();
+  Future<void>.delayed(const Duration(seconds: 5), updateHomeWidget).ignore();
   runApp(PolarEcgApp(controller: controller));
 }
 

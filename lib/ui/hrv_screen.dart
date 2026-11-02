@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 
 import '../analysis/hrv_session.dart';
 import '../health/health_connect.dart';
+import 'home_widget_sync.dart';
 import '../app_controller.dart';
 import '../recording/recorder.dart';
 import 'theme/app_theme.dart';
@@ -101,6 +102,7 @@ class _HrvMeasureScreenState extends State<HrvMeasureScreen> {
     final dir = _appDir ?? (await Recorder.recordingsRoot()).parent;
     await HrvHistory.add(dir, m);
     HealthConnect.pushMorning(m).ignore();
+    updateHomeWidget().ignore();
     final h = await HrvHistory.load(dir);
     if (!mounted) return;
     setState(() {
