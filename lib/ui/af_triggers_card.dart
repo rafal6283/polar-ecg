@@ -79,6 +79,7 @@ class _AfTriggersCardState extends State<AfTriggersCard> {
                 if (r.sources.contains(srcSleep)) 'Rytm Snu',
                 if (r.sources.contains(srcMeals)) 'Dziennik talerza',
                 if (r.sources.contains(srcMove)) 'Doba',
+                if (r.sources.contains(srcMeds)) 'Teczka (leki)',
                 if (r.sources.contains(srcHrv)) 'poranne HRV',
               ].join(', '),
               style: muted,

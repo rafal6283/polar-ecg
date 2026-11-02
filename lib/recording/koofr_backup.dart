@@ -160,7 +160,7 @@ class _PolarExchange extends ExchangeAdapter {
 
   @override
   List<(String, String)> get sources => const [
-        ('czynniki', 'Sen, posiłki i ruch (Rytm Snu, Dziennik talerza, Doba) – co poprzedza napady AF'),
+        ('czynniki', 'Sen, posiłki, ruch i leki (Rytm Snu, Dziennik talerza, Doba, Teczka) – co poprzedza napady AF'),
         ('kreska-z', 'Kreska (zdarzenie AFIB)'),
       ];
 
