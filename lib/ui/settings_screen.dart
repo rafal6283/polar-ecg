@@ -71,6 +71,14 @@ class SettingsScreen extends StatelessWidget {
                 value: s.accEnabled,
                 onChanged: (v) => set((x) => x.accEnabled = v),
               ),
+              SwitchListTile(
+                title: const Text('Automatyczny zapis przy podejrzeniu AF'),
+                subtitle: const Text('Gdy opaska jest połączona, a nic nie nagrywasz: przy podejrzeniu migotania, pauzie '
+                    '≥ 3 s lub salwie komorowej zapis zaczyna się sam – razem z 3 minutami sprzed zdarzenia – i kończy '
+                    '2 min po ustąpieniu. Działa też w trybie czuwania.'),
+                value: s.autoRecord,
+                onChanged: (v) => set((x) => x.autoRecord = v),
+              ),
               const _BackgroundTile(),
 
               const _Header('Analiza'),

@@ -1119,29 +1119,7 @@ class _Ctx {
 
   /// Kryteria nieregularności okna odstępów RR [s]: (Dash i wsp. 2009, COSEn > afCosen); null, gdy rytm wyraźnie
   /// miarowy (nRMSSD ≤ 0.06) albo za mało odstępów po odrzuceniu skrajnych.
-  (bool, bool)? _irregularity(List<double> vals) {
-    const trim = 2;
-    final w = vals.length;
-    final sorted = [...vals]..sort();
-    final lo = sorted[trim], hi = sorted[w - 1 - trim];
-    final x = [for (final v in vals) if (v >= lo && v <= hi) v];
-    if (x.length < 16) return null;
-    final m = x.reduce((a, b) => a + b) / x.length;
-    var ss = 0.0;
-    for (var k = 1; k < x.length; k++) {
-      ss += (x[k] - x[k - 1]) * (x[k] - x[k - 1]);
-    }
-    final nrmssd = sqrt(ss / (x.length - 1)) / m;
-    if (nrmssd <= 0.06) return null;
-    var tp = 0;
-    for (var k = 1; k < x.length - 1; k++) {
-      if ((x[k] - x[k - 1]) * (x[k + 1] - x[k]) < 0) tp++;
-    }
-    final nn = x.length;
-    final mu = (2 * nn - 4) / 3, sd = sqrt((16 * nn - 29) / 90);
-    final dash = nrmssd > 0.1 && tp > mu - 2 * sd && tp < mu + 2 * sd && _shannon(x) > 0.6;
-    return (dash, _cosen(vals) > cfg.afCosen);
-  }
+  (bool, bool)? _irregularity(List<double> vals) => rrIrregularity(vals, cosenThreshold: cfg.afCosen);
 
   /// AF z odstępów RR samej opaski (H10 liczy je własnym detektorem, odpornym na zakłócenia EKG) – tylko tam,
   /// gdzie EKG jest zbyt zakłócone (≥ 25% nieczytelnych pobudzeń w oknie), np. przy zakładaniu opaski.
@@ -1720,4 +1698,44 @@ class _Ctx {
       'sd2_ms': sd2,
     });
   }
+}
+
+
+/// Kryteria nieregularności okna odstępów RR [s]: (Dash i wsp. 2009, COSEn > [cosenThreshold]); null, gdy rytm
+/// wyraźnie miarowy (nRMSSD ≤ 0.06) albo za mało odstępów po odrzuceniu skrajnych.
+(bool, bool)? rrIrregularity(List<double> vals, {double cosenThreshold = -1.0}) {
+  const trim = 2;
+  final w = vals.length;
+  if (w < 20) return null;
+  final sorted = [...vals]..sort();
+  final lo = sorted[trim], hi = sorted[w - 1 - trim];
+  final x = [for (final v in vals) if (v >= lo && v <= hi) v];
+  if (x.length < 16) return null;
+  final m = x.reduce((a, b) => a + b) / x.length;
+  var ss = 0.0;
+  for (var k = 1; k < x.length; k++) {
+    ss += (x[k] - x[k - 1]) * (x[k] - x[k - 1]);
+  }
+  final nrmssd = sqrt(ss / (x.length - 1)) / m;
+  if (nrmssd <= 0.06) return null;
+  var tp = 0;
+  for (var k = 1; k < x.length - 1; k++) {
+    if ((x[k] - x[k - 1]) * (x[k + 1] - x[k]) < 0) tp++;
+  }
+  final nn = x.length;
+  final mu = (2 * nn - 4) / 3, sd = sqrt((16 * nn - 29) / 90);
+  final dash = nrmssd > 0.1 && tp > mu - 2 * sd && tp < mu + 2 * sd && _Ctx._shannon(x) > 0.6;
+  return (dash, _Ctx._cosen(vals) > cosenThreshold);
+}
+
+/// Okno 32 odstępów RR samej opaski [s] wygląda na AF: bez odstępów niefizjologicznych (< 0.25 / > 2.5 s),
+/// najwyżej jeden odstęp poza 0.5–1.7× mediany (gubione/dodane uderzenia przy zakłóceniach) i oba kryteria
+/// nieregularności (Dash i COSEn) – jak `_afFromDeviceRr` w analizie zapisu.
+bool deviceRrWindowAf(List<double> vals, {double cosenThreshold = -1.0}) {
+  if (vals.length < 20 || vals.any((v) => v < 0.25 || v > 2.5)) return false;
+  final sorted = [...vals]..sort();
+  final med = sorted[sorted.length ~/ 2];
+  if (vals.where((v) => v > 1.7 * med || v < 0.5 * med).length > 1) return false;
+  final irr = rrIrregularity(vals, cosenThreshold: cosenThreshold);
+  return irr != null && irr.$1 && irr.$2;
 }

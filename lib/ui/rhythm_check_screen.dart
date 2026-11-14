@@ -42,6 +42,13 @@ class _RhythmCheckScreenState extends State<RhythmCheckScreen> {
   String? _error;
 
   AppController get c => widget.controller;
+
+  @override
+  void initState() {
+    super.initState();
+    // Otwarte ze skrótu / kafelka bez połączonej opaski – łączymy z ostatnią.
+    if (c.device == null && AppSettings.instance.lastDeviceId.isNotEmpty) c.connectLast();
+  }
   bool get _connected => c.device != null && c.link == LinkState.connected;
 
   @override
@@ -194,8 +201,16 @@ class _RhythmCheckScreenState extends State<RhythmCheckScreen> {
       const SizedBox(height: 20),
       if (busy)
         const Text('Trwa nagrywanie – rytm jest oceniany na bieżąco. Użyj przycisku „Objaw” na ekranie Monitor.')
-      else if (!_connected)
-        const Text('Połącz opaskę Polar H10 na ekranie Monitor.')
+      else if (c.link == LinkState.connecting)
+        const Text('Łączę z opaską…')
+      else if (!_connected) ...[
+        const Text('Opaska nie jest połączona. Załóż ją (zwilżone elektrody) i połącz.'),
+        if (AppSettings.instance.lastDeviceId.isNotEmpty)
+          TextButton.icon(
+              icon: const Icon(Icons.bluetooth_searching),
+              label: const Text('Połącz z ostatnią opaską'),
+              onPressed: c.connectLast),
+      ]
       else if (c.skinContact == false)
         const Text('Brak kontaktu elektrod ze skórą – zwilż elektrody i popraw opaskę.'),
       const SizedBox(height: 8),

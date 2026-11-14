@@ -39,8 +39,11 @@ class Recorder {
     return root;
   }
 
-  static Future<Recorder> start({required String deviceName, required String deviceId, bool withAcc = true}) async {
-    final now = DateTime.now();
+  /// [startedAt] – początek wcześniejszy niż teraz, gdy zapis zaczyna się od ramek z bufora (automatyczny zapis
+  /// z minutami sprzed zdarzenia).
+  static Future<Recorder> start(
+      {required String deviceName, required String deviceId, bool withAcc = true, DateTime? startedAt}) async {
+    final now = startedAt ?? DateTime.now();
     final root = await recordingsRoot();
     final dir = Directory('${root.path}/${_stamp(now)}');
     await dir.create(recursive: true);
@@ -52,7 +55,7 @@ class Recorder {
     final events = File('${dir.path}/events.csv').openWrite()..writeln('phone_ms,event');
     final r = Recorder._(dir, now, deviceName, deviceId, ecg, acc, rr, events);
     await r._writeMeta(null);
-    r.addEvent('start');
+    r.addEvent('start', at: now);
     // Punkt kontrolny co minutę: przy zamknięciu aplikacji / restarcie telefonu nagranie ma aktualne metadane.
     r._checkpoint = Timer.periodic(const Duration(minutes: 1), (_) => r._saveCheckpoint());
     return r;
@@ -90,8 +93,8 @@ class Recorder {
     }
   }
 
-  void addEvent(String event) {
-    _events.writeln('${DateTime.now().millisecondsSinceEpoch},$event');
+  void addEvent(String event, {DateTime? at}) {
+    _events.writeln('${(at ?? DateTime.now()).millisecondsSinceEpoch},$event');
   }
 
   /// Znacznik objawu: zapisany z czasem telefonu i zegara opaski (do odnalezienia w sygnale).

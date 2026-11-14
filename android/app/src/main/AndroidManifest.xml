@@ -42,6 +42,17 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+        <!-- Kafelek szybkich ustawień „Sprawdź rytm” -->
+        <service
+            android:name=".RhythmTileService"
+            android:exported="true"
+            android:icon="@drawable/ic_tile_rhythm"
+            android:label="Sprawdź rytm"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
         <!-- Warning: Do not change service name. -->
         <service
             android:name="com.pravera.flutter_foreground_task.service.ForegroundService"

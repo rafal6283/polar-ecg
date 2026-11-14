@@ -8,7 +8,10 @@ import 'package:polar_ecg/analysis/analyzer.dart';
 import 'package:polar_ecg/analysis/ecg_recording.dart';
 import 'package:polar_ecg/analysis/personal_profile.dart';
 import 'package:polar_ecg/ble/polar_protocol.dart';
+import 'package:flutter/services.dart';
 import 'package:polar_ecg/recording/binary_format.dart';
+import 'package:polar_ecg/recording/recorder.dart';
+import 'dart:math';
 
 import 'synthetic_ecg.dart';
 
@@ -103,5 +106,40 @@ void main() {
     }
     final third = await analyzeRecordingDir(dir2.path);
     expect(third.count(BeatType.ventricular), lessThan(vIdx.length ~/ 4));
+  });
+
+  test('zapis automatyczny: początek z bufora (3 min wstecz), oś czasu i RR opaski spójne', () async {
+    TestWidgetsFlutterBinding.ensureInitialized();
+    final docs = Directory.systemTemp.createTempSync('auto');
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(const MethodChannel('plugins.flutter.io/path_provider'), (call) async => docs.path);
+    final now = DateTime.now();
+    final startedAt = now.subtract(const Duration(minutes: 3));
+    final r = await Recorder.start(deviceName: 'Polar H10 TEST', deviceId: 'X', withAcc: false, startedAt: startedAt);
+    const per = 73;
+    var ts = 1000000000000;
+    for (var k = 0; k < 180 * ecgSampleRate ~/ per; k++) {
+      ts += per * (1000000000 ~/ ecgSampleRate);
+      r.addEcg(EcgFrame(ts, List<int>.filled(per, 0), startedAt.add(Duration(milliseconds: k * per * 1000 ~/ ecgSampleRate))));
+      if (k % 10 == 0) {
+        r.addHr(HrMeasurement(70, [857.0], true, startedAt.add(Duration(milliseconds: k * per * 1000 ~/ ecgSampleRate))));
+      }
+    }
+    await r.stop();
+    final rec = await EcgRecording.load(r.dir);
+    expect(rec.timeline.started.difference(startedAt).inSeconds.abs(), lessThan(2));
+    expect(rec.uv.length, closeTo(180 * ecgSampleRate, per * 2));
+    expect(rec.deviceRr, isNotEmpty);
+    expect(rec.deviceRr!.first.$1, lessThan(5 * ecgSampleRate));
+  });
+
+  test('okno RR opaski: AF tak, rytm zatokowy i gubione uderzenia nie', () {
+    final rnd = Random(3);
+    final af = [for (var i = 0; i < 32; i++) 0.42 + 0.25 * rnd.nextDouble()];
+    expect(deviceRrWindowAf(af), isTrue);
+    final sinus = [for (var i = 0; i < 32; i++) 0.85 + 0.05 * sin(i / 2)];
+    expect(deviceRrWindowAf(sinus), isFalse);
+    final missed = [for (var i = 0; i < 32; i++) i % 6 == 0 ? 1.7 : 0.85 + 0.01 * rnd.nextDouble()];
+    expect(deviceRrWindowAf(missed), isFalse);
   });
 }

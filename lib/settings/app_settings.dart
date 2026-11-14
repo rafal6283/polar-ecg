@@ -17,6 +17,8 @@ class AppSettings extends ChangeNotifier {
 
   // Nagrywanie
   bool accEnabled = true;
+  String lastDeviceId = ''; // ostatnio połączona opaska (szybkie ponowne połączenie)
+  bool autoRecord = true; // automatyczny zapis (z 3 min sprzed zdarzenia) przy podejrzeniu AF / zdarzeniu wysokiej wagi
 
   // Analiza
   double pauseSeconds = 2.0;
@@ -43,6 +45,8 @@ class AppSettings extends ChangeNotifier {
     birthYear = p.getInt('birthYear');
     sex = p.getString('sex') ?? sex;
     accEnabled = p.getBool('accEnabled') ?? accEnabled;
+    autoRecord = p.getBool('autoRecord') ?? autoRecord;
+    lastDeviceId = p.getString('lastDeviceId') ?? lastDeviceId;
     pauseSeconds = p.getDouble('pauseSeconds') ?? pauseSeconds;
     bradyBpm = p.getDouble('bradyBpm') ?? bradyBpm;
     tachyBpm = p.getDouble('tachyBpm') ?? tachyBpm;
@@ -71,6 +75,8 @@ class AppSettings extends ChangeNotifier {
       if (birthYear != null) p.setInt('birthYear', birthYear!) else p.remove('birthYear'),
       p.setString('sex', sex),
       p.setBool('accEnabled', accEnabled),
+      p.setBool('autoRecord', autoRecord),
+      p.setString('lastDeviceId', lastDeviceId),
       p.setDouble('pauseSeconds', pauseSeconds),
       p.setDouble('bradyBpm', bradyBpm),
       p.setDouble('tachyBpm', tachyBpm),
@@ -91,7 +97,7 @@ class AppSettings extends ChangeNotifier {
 
   /// Ustawienia do kopii zapasowej.
   Map<String, Object?> toJson() => {
-        'name': name, 'birthYear': birthYear, 'sex': sex, 'accEnabled': accEnabled,
+        'name': name, 'birthYear': birthYear, 'sex': sex, 'accEnabled': accEnabled, 'autoRecord': autoRecord,
         'pauseSeconds': pauseSeconds, 'bradyBpm': bradyBpm, 'tachyBpm': tachyBpm, 'afMinSeconds': afMinSeconds,
         'usePersonal': usePersonal, 'alarmsEnabled': alarmsEnabled, 'alarmHrHigh': alarmHrHigh,
         'alarmHrLow': alarmHrLow, 'alarmPause': alarmPause, 'alarmAf': alarmAf, 'alarmVt': alarmVt, 'alarmContact': alarmContact,
@@ -106,6 +112,7 @@ class AppSettings extends ChangeNotifier {
         s.birthYear = j.containsKey('birthYear') ? v<int>('birthYear') : s.birthYear;
         s.sex = v<String>('sex') ?? s.sex;
         s.accEnabled = v<bool>('accEnabled') ?? s.accEnabled;
+        s.autoRecord = v<bool>('autoRecord') ?? s.autoRecord;
         s.pauseSeconds = d('pauseSeconds') ?? s.pauseSeconds;
         s.bradyBpm = d('bradyBpm') ?? s.bradyBpm;
         s.tachyBpm = d('tachyBpm') ?? s.tachyBpm;

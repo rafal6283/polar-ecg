@@ -76,6 +76,19 @@ class AlarmService {
     _seenEvents = live.events.length;
   }
 
+  /// Informacja bez dźwięku (np. zapisano automatycznie fragment EKG) – niezależnie od włączenia alarmów.
+  Future<void> notice(String title, String body) => _fire('notice_${DateTime.now().millisecondsSinceEpoch}', title, body,
+      quiet: true, cooldownMin: 0, always: true);
+
+  /// Tryb czuwania wykrył niemiarowość w RR – alarm AF (gdy włączone alarmy), inaczej ciche powiadomienie.
+  Future<void> alertAfFromWatch() async {
+    if (settings.alarmsEnabled && settings.alarmAf) {
+      await _fire('af', 'Niemiarowy rytm', 'Podejrzenie migotania przedsionków – włączono zapis EKG');
+    } else {
+      await notice('Niemiarowy rytm', 'Podejrzenie migotania przedsionków – włączono zapis EKG');
+    }
+  }
+
   /// Alarm próbny (z ustawień); zwraca komunikat dla użytkownika, gdy powiadomienie nie może się pojawić.
   Future<String?> test() async {
     await _fire('test_${DateTime.now().millisecondsSinceEpoch}', 'Test alarmu', 'Tak będą wyglądać alarmy z analizy EKG');
@@ -90,13 +103,17 @@ class AlarmService {
   }
 
   /// [quiet] – bez dźwięku i wibracji (np. w nocy nie budzi), tylko powiadomienie.
-  Future<void> _fire(String kind, String title, String body, {bool quiet = false, double? cooldownMin}) async {
+  Future<void> _fire(String kind, String title, String body,
+      {bool quiet = false, double? cooldownMin, bool always = false}) async {
     final now = DateTime.now();
     final last = _lastFired[kind];
     if (last != null && now.difference(last).inSeconds < (cooldownMin ?? settings.alarmCooldownMin) * 60) return;
     _lastFired[kind] = now;
-    lastAlarm = '$title: $body';
-    lastAlarmTime = now;
+    if (!always) {
+      // Informacje (np. o zapisie) nie pokazują czerwonej karty alarmu na Monitorze.
+      lastAlarm = '$title: $body';
+      lastAlarmTime = now;
+    }
     final sound = settings.alarmSound && !quiet, vibrate = settings.alarmVibrate && !quiet;
     if (vibrate) await HapticFeedback.heavyImpact();
     if (!_ready) return;
