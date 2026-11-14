@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:polar_ecg/analysis/af_episodes.dart';
 import 'package:polar_ecg/analysis/journal.dart';
+import 'package:polar_ecg/analysis/sv_trend.dart';
 
 AfEpisode ep(DateTime s, int min, {bool toEnd = false}) => AfEpisode(
     recording: 'r', start: s, end: s.add(Duration(minutes: min)), startSample: 0, endSample: 0,
@@ -47,5 +48,13 @@ void main() {
     expect(c.warnings, isNotEmpty);
     final noMed = conductionCheck(Journal(), spans);
     expect(noMed.warnings, isEmpty); // 118 ms < 120 – bez leku nie ostrzegamy
+  });
+
+  test('trend S/h: wzrost względem normy', () {
+    final base = DateTime(2026, 11, 1);
+    final recs = [for (var d = 0; d < 8; d++) (base.add(Duration(days: d)), 3.0 + d % 2, 8.0)];
+    expect(svTrend(recs).elevated, isFalse);
+    expect(svTrend([...recs, (base.add(const Duration(days: 9)), 14.0, 6.0)]).elevated, isTrue);
+    expect(svTrend(recs.take(3).toList()).norm, isNull);
   });
 }

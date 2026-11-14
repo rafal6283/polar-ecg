@@ -584,6 +584,17 @@ class _ReportTab extends StatelessWidget {
           ('pNN50', fmtNum(s['pnn50_pct'], digits: 1, unit: '%')),
           ('SD1 / SD2', '${fmtNum(s['sd1_ms'], digits: 1)} / ${fmtNum(s['sd2_ms'], digits: 1)} ms'),
         ]),
+        if (s['sleep_h'] != null)
+          _Section('Sen (z akcelerometru)', [
+            ('Okres snu',
+                '${fmtClock(tl.timeOf(s['sleep_start']!)).substring(0, 5)}–${fmtClock(tl.timeOf(s['sleep_end']!)).substring(0, 5)} '
+                    '(${fmtNum(s['sleep_h'], digits: 1, unit: 'h')})'),
+            ('Tętno we śnie / najniższe (5 min)',
+                '${fmtNum(s['sleep_hr'])} / ${fmtNum(s['sleep_hr_min'])} /min'),
+            ('RMSSD we śnie', fmtNum(s['sleep_rmssd'], digits: 1, unit: 'ms')),
+            ('Niespokojny sen (ruch)', fmtNum(s['sleep_restless_pct'], digits: 1, unit: '%')),
+            ('Przebudzenia (ruch ≥ 5 min)', fmtNum(s['sleep_wake_n'])),
+          ]),
         const SizedBox(height: 8),
         Text('Wykres Poincaré', style: t.titleSmall),
         const SizedBox(height: 8),

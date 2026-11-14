@@ -1,9 +1,12 @@
+import 'dart:typed_data';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:polar_ecg/analysis/af_episodes.dart';
 import 'package:polar_ecg/analysis/analysis_result.dart';
 import 'package:polar_ecg/analysis/analyzer.dart';
 import 'package:polar_ecg/analysis/beat_clusters.dart';
 import 'package:polar_ecg/analysis/confidence.dart';
+import 'package:polar_ecg/analysis/ecg_recording.dart';
 import 'package:polar_ecg/analysis/rhythm_at.dart';
 import 'package:polar_ecg/analysis/rhythm_check.dart';
 
@@ -187,5 +190,22 @@ void main() {
 
     final noisy = run(SyntheticEcg(seed: 13)..noise(60));
     expect(rhythmVerdict(noisy).verdict, CheckVerdict.unreadable);
+  });
+
+  test('sen z akcelerometru: okres spokoju w nocy, tętno i RMSSD we śnie', () {
+    final s = SyntheticEcg(seed: 21)..sinus(3 * 3600, bpm: 58);
+    final x = s.render();
+    final tl = Timeline(DateTime(2026, 1, 1, 23), 130, [Segment(0, x.length, 0)]);
+    final nWin = x.length ~/ 260 + 1;
+    // 20 min krzątania, potem sen; 10 min ruchu w środku (przebudzenie).
+    final act = Float32List.fromList([
+      for (var w = 0; w < nWin; w++) w < 600 || (w >= 3000 && w < 3300) ? 80.0 : 3.0,
+    ]);
+    final r = analyzeEcg(x, tl, activity: act).result;
+    final st = r.stats;
+    expect(st['sleep_h'], isNotNull);
+    expect(st['sleep_h']!, greaterThan(2.3));
+    expect(st['sleep_hr']!, closeTo(58, 4));
+    expect(st['sleep_wake_n'], 1);
   });
 }

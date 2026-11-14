@@ -11,6 +11,7 @@ import '../recording/recorder.dart';
 import '../settings/app_settings.dart';
 import 'theme/app_theme.dart';
 import 'af_diary_card.dart';
+import 'sv_trend_card.dart';
 import 'viewer/format.dart';
 
 class _Metric {
@@ -28,6 +29,10 @@ const _metrics = [
   _Metric('hr_min', 'Tętno minimalne', '/min'),
   _Metric('rmssd_ms', 'RMSSD (wszystkie zapisy)', 'ms'),
   _Metric('sdnn_ms', 'SDNN', 'ms'),
+  _Metric('sleep_hr', 'Tętno we śnie', '/min'),
+  _Metric('sleep_hr_min', 'Najniższe tętno we śnie', '/min'),
+  _Metric('sleep_rmssd', 'HRV we śnie (RMSSD)', 'ms'),
+  _Metric('sleep_h', 'Sen (z akcelerometru)', 'h', digits: 1),
   _Metric('v_per_h', 'Pobudzenia V na godzinę', '/h', digits: 1),
   _Metric('s_per_h', 'Pobudzenia S na godzinę', '/h', digits: 1),
   _Metric('af_burden_pct', 'Obciążenie migotaniem', '%', digits: 1),
@@ -125,6 +130,7 @@ class _TrendsScreenState extends State<TrendsScreen> {
                           : TextButton(onPressed: _analyzeMissing, child: const Text('ANALIZUJ')),
                     ),
                   ),
+                SvTrendCard(rows: _rows),
                 AfDiaryCard(rows: _rows),
                 const SectionLabel('Parametry w czasie'),
                 Wrap(spacing: 6, runSpacing: 6, children: [

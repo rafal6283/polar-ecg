@@ -186,6 +186,7 @@ Map<String, dynamic> recordingSummary(AnalysisResult a, {String recording = ''})
   const keys = [
     'duration_s', 'analyzed_s', 'hr_mean', 'hr_min', 'hr_max', 'hr_rest', 'rmssd_ms', 'sdnn_ms', 'pnn50_pct',
     'v_per_h', 's_per_h', 'af_burden_pct', 'qtc_ms', 'qrs_ms', 'pr_ms', 'longest_pause_s', 'beats',
+    'sleep_h', 'sleep_hr', 'sleep_hr_min', 'sleep_rmssd', 'sleep_restless_pct',
   ];
   final s = a.stats.values;
   final h = a.timeline.started.hour;
@@ -382,7 +383,10 @@ AnalysisOutput analyzeEcg(
   if (morph != null) stats.values.addAll(morph.values);
   final noisyRanges = _ranges(noisyMask, noiseWin, raw.length);
   stats.values['hf_2_8_pct'] = bandEnergy2to8(filtered, tl, noisyRanges);
-  if (activity != null) stats.values.addAll(ctx.activityStats());
+  if (activity != null) {
+    stats.values.addAll(ctx.activityStats());
+    stats.values.addAll(ctx.sleepStats());
+  }
 
   final result = AnalysisResult(
     timeline: tl,
@@ -1574,6 +1578,93 @@ class _Ctx {
       'act_moderate_pct': tot == 0 ? null : 100 * moderate / tot,
       'act_vigorous_pct': tot == 0 ? null : 100 * vigorous / tot,
       'hr_rest': restRr.length < 30 ? null : 60 * fs / _median(restRr),
+    };
+  }
+
+  /// Sen z akcelerometru: najdłuższy nocny (21:00–11:00) okres spokoju (bloki 5 min, średnio < 12 mg; przerwy
+  /// ruchu do 10 min wliczane jako przebudzenia), co najmniej 2 h. Tętno, najniższe tętno 5-min i RMSSD we śnie.
+  Map<String, num?> sleepStats() {
+    final a = activity!;
+    const block = 150; // okien 2 s = 5 min
+    final nb = a.length ~/ block;
+    final calm = List<bool>.filled(nb, false), night = List<bool>.filled(nb, false);
+    for (var b = 0; b < nb; b++) {
+      var sum = 0.0, cnt = 0;
+      for (var k = b * block; k < (b + 1) * block; k++) {
+        if (a[k] >= 0) {
+          sum += a[k];
+          cnt++;
+        }
+      }
+      calm[b] = cnt >= block ~/ 2 && sum / cnt < 12;
+      final h = tl.timeOf(min(tl.totalSamples - 1, b * block * noiseWin)).hour;
+      night[b] = h >= 21 || h < 11;
+    }
+    var best = (0, -1, 0); // początek, koniec (włącznie), przebudzenia
+    var b = 0;
+    while (b < nb) {
+      if (!calm[b] || !night[b]) {
+        b++;
+        continue;
+      }
+      var e = b, wakes = 0, gap = 0;
+      for (var k = b + 1; k < nb && night[k]; k++) {
+        if (calm[k]) {
+          if (gap > 0) wakes++;
+          gap = 0;
+          e = k;
+        } else if (++gap > 2) {
+          break;
+        }
+      }
+      if (e - b > best.$2 - best.$1) best = (b, e, wakes);
+      b = e + 1;
+    }
+    if (best.$2 - best.$1 + 1 < 24) return const {};
+    final s0 = best.$1 * block * noiseWin, s1 = (best.$2 + 1) * block * noiseWin;
+    final rrs = <double>[], nn = <double>[];
+    var ss = 0.0, nd = 0;
+    double? prev;
+    final perBlock = <int, List<double>>{};
+    for (var i = 1; i < n; i++) {
+      if (r[i] < s0 || r[i] >= s1) continue;
+      final ok = cleanRr(i) && labels[i] == BeatType.normal && labels[i - 1] == BeatType.normal && inAf[i] == 0;
+      if (!ok) {
+        prev = null;
+        continue;
+      }
+      final v = rr(i) * 1000 / fs;
+      rrs.add(v);
+      perBlock.putIfAbsent(r[i] ~/ (block * noiseWin), () => []).add(v);
+      if (prev != null && (v - prev).abs() < 0.2 * prev) {
+        ss += (v - prev) * (v - prev);
+        nd++;
+        nn.add(v);
+      }
+      prev = v;
+    }
+    if (rrs.length < 100) return const {};
+    double? hrMin;
+    perBlock.forEach((_, v) {
+      if (v.length < 100) return;
+      final hr = 60000 / (v.reduce((x, y) => x + y) / v.length);
+      hrMin = hrMin == null ? hr : min(hrMin!, hr);
+    });
+    var restless = 0, valid = 0;
+    for (var k = s0 ~/ noiseWin; k < s1 ~/ noiseWin && k < a.length; k++) {
+      if (a[k] < 0) continue;
+      valid++;
+      if (a[k] > 30) restless++;
+    }
+    return {
+      'sleep_start': s0,
+      'sleep_end': s1,
+      'sleep_h': (s1 - s0) / fs / 3600,
+      'sleep_hr': 60000 / _median(rrs),
+      'sleep_hr_min': hrMin,
+      'sleep_rmssd': nd >= 50 ? sqrt(ss / nd) : null,
+      'sleep_restless_pct': valid == 0 ? null : 100 * restless / valid,
+      'sleep_wake_n': best.$3,
     };
   }
 
