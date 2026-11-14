@@ -11,6 +11,7 @@ import '../app_controller.dart';
 import '../ble/polar_h10.dart';
 import 'ecg_chart.dart';
 import 'hrv_screen.dart';
+import 'journal_screen.dart';
 import 'rhythm_check_screen.dart';
 import 'legend_screen.dart';
 import 'settings_screen.dart';
@@ -41,7 +42,8 @@ class _HomeScreenState extends State<HomeScreen> {
       body: switch (_tab) {
         1 => RecordingsScreen(key: ValueKey('rec$_visit')),
         2 => TrendsScreen(key: ValueKey('tr$_visit')),
-        3 => SettingsScreen(settings: c.settings, alarms: c.alarms),
+        3 => JournalScreen(key: ValueKey('jr$_visit')),
+        4 => SettingsScreen(settings: c.settings, alarms: c.alarms),
         _ => MonitorPage(controller: c),
       },
       bottomNavigationBar: ListenableBuilder(
@@ -67,6 +69,11 @@ class _HomeScreenState extends State<HomeScreen> {
               icon: Icon(Icons.insights_outlined),
               selectedIcon: Icon(Icons.insights),
               label: 'Trendy',
+            ),
+            const NavigationDestination(
+              icon: Icon(Icons.edit_note_outlined),
+              selectedIcon: Icon(Icons.edit_note),
+              label: 'Dziennik',
             ),
             const NavigationDestination(
               icon: Icon(Icons.tune_outlined),

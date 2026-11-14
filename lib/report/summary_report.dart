@@ -12,6 +12,7 @@ class SummaryItem {
 Future<Uint8List> buildSummaryReport({
   required List<SummaryItem> items,
   List<HrvMeasurement> hrv = const [],
+  Journal? journal,
   ReportPerson person = const ReportPerson(),
   (Uint8List regular, Uint8List bold)? fontData,
 }) async {
@@ -117,6 +118,29 @@ Future<Uint8List> buildSummaryReport({
         episodes: afEpisodes(it.a),
       ),
   ]);
+  // Dziennik w okresie raportu.
+  final periodEnd = DateTime(to.year, to.month, to.day).add(const Duration(days: 1));
+  final periodStart = DateTime(from.year, from.month, from.day);
+  final jEntries = [
+    for (final e in journal?.entries ?? const <JournalEntry>[])
+      if (!e.time.isBefore(periodStart) && e.time.isBefore(periodEnd)) e
+  ];
+  final spans = [
+    for (final it in sorted)
+      MonitoredSpan(it.a.timeline.started, (it.a.stats['analyzed_s'] ?? 0).toDouble(),
+          sPerH: it.a.stats['s_per_h']?.toDouble(),
+          qrsMs: it.a.stats['qrs_ms']?.toDouble(),
+          qtcMs: it.a.stats['qtc_ms']?.toDouble(),
+          episodes: afEpisodes(it.a)),
+  ];
+  final jr = journal ?? Journal();
+  final doses = doseOutcomes(jr, [for (final s in spans) ...s.episodes]);
+  final cond = conductionCheck(jr, spans);
+  final trigCounts = <String, int>{};
+  for (final e in jEntries.where((e) => e.kind == 'trigger')) {
+    trigCounts.update(e.name, (v) => v + 1, ifAbsent: () => 1);
+  }
+  final effects = [for (final e in triggerEffects(jr, spans)) if (e.enough) e];
   String dur(Duration d) => d.inMinutes >= 60
       ? '${d.inHours} h ${d.inMinutes % 60} min'
       : d.inSeconds >= 60
@@ -214,6 +238,53 @@ Future<Uint8List> buildSummaryReport({
         pw.SizedBox(height: 6),
         _afTable(diary.episodes.take(60).toList(), tx, clock, date: date),
         if (diary.episodes.length > 60) pw.Text(tx('… i ${diary.episodes.length - 60} kolejnych'), style: small),
+      ],
+      if (jr.meds.isNotEmpty || jEntries.isNotEmpty) ...[
+        section('Leki i czynniki (dziennik)'),
+        if (jr.meds.isNotEmpty)
+          _table(tx, [
+            for (final m in jr.meds)
+              [
+                m.name,
+                m.dose,
+                m.cls.label,
+                m.onDemand ? 'doraźnie' : 'stale',
+                '${jEntries.where((e) => e.kind == 'med' && e.name == m.name).length}',
+              ],
+          ], header: ['Lek', 'Dawka', 'Grupa', 'Sposób', 'Przyjęć w okresie']),
+        if (doses.isNotEmpty) ...[
+          pw.SizedBox(height: 6),
+          _table(tx, [
+            for (final d in doses)
+              [
+                '${date(d.dose.time)} ${clock(d.dose.time)}',
+                d.dose.name,
+                '${clock(d.episode.start)}–${clock(d.episode.end)}',
+                d.minutesToEnd == null ? 'trwał do końca zapisu' : 'ustąpił po ${d.minutesToEnd} min',
+              ],
+          ], header: ['Lek w czasie napadu', 'Lek', 'Napad', 'Wynik']),
+        ],
+        if (cond.qrsLast != null) ...[
+          pw.SizedBox(height: 6),
+          pw.Text(
+              tx('QRS: norma ${num0(cond.qrsBase)} ms, ostatnio ${num0(cond.qrsLast)} ms'
+                  '${cond.qrsChangePct == null ? '' : ' (${cond.qrsChangePct! >= 0 ? '+' : ''}${num0(cond.qrsChangePct)}%)'}'
+                  '; QTc ostatnio ${num0(cond.qtcLast)} ms.'),
+              style: const pw.TextStyle(fontSize: 9)),
+          for (final w in cond.warnings)
+            pw.Text(tx('! $w'), style: pw.TextStyle(fontSize: 9, color: PdfColors.red800, fontWeight: pw.FontWeight.bold)),
+        ],
+        if (trigCounts.isNotEmpty) ...[
+          pw.SizedBox(height: 6),
+          pw.Text(tx('Czynniki w okresie: ${trigCounts.entries.map((e) => '${e.key} (${e.value} d)').join(', ')}.'),
+              style: const pw.TextStyle(fontSize: 9)),
+        ],
+        for (final e in effects)
+          pw.Text(
+              tx('${e.trigger}: napady ${num0(e.afRateWith, 1)}/dobę w 24 h po czynniku vs ${num0(e.afRateWithout, 1)}/dobę '
+                  'bez${e.sWith != null && e.sWithout != null ? '; S ${num0(e.sWith, 1)} vs ${num0(e.sWithout, 1)}/h' : ''}'
+                  '${e.suspicious ? ' – wyraźnie więcej' : ''}.'),
+              style: const pw.TextStyle(fontSize: 9)),
       ],
       section('Zdarzenia średniej i wysokiej wagi (${events.length})'),
       if (events.isEmpty)

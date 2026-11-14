@@ -9,6 +9,7 @@ import '../analysis/af_episodes.dart';
 import '../analysis/analysis_result.dart';
 import '../analysis/confidence.dart';
 import '../analysis/hrv_session.dart';
+import '../analysis/journal.dart';
 import '../analysis/reference_ranges.dart';
 import '../analysis/rhythm_at.dart';
 import '../recording/markers.dart';

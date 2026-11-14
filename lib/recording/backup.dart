@@ -35,7 +35,7 @@ Future<File> createArchive({
     }
   }
   if (appDir != null) {
-    for (final fn in ['profile.json', 'hrv_morning.json']) {
+    for (final fn in ['profile.json', 'hrv_morning.json', 'journal.json']) {
       final f = File('${appDir.path}/$fn');
       if (f.existsSync()) await enc.addFile(f, fn);
     }
@@ -89,7 +89,7 @@ Future<RestoreResult> restoreArchive(File zip, Directory appDir) async {
       added.add(rec);
       final out = File('${recRoot.path}/$rec/${parts[2]}')..createSync(recursive: true);
       out.writeAsBytesSync(f.readBytes()!);
-    } else if (parts.length == 1 && (f.name == 'profile.json' || f.name == 'hrv_morning.json')) {
+    } else if (parts.length == 1 && (f.name == 'profile.json' || f.name == 'hrv_morning.json' || f.name == 'journal.json')) {
       final out = File('${appDir.path}/${f.name}');
       if (!out.existsSync()) {
         out.writeAsBytesSync(f.readBytes()!);

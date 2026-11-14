@@ -7,6 +7,7 @@ import 'package:share_plus/share_plus.dart';
 
 import '../analysis/analyzer.dart';
 import '../analysis/hrv_session.dart';
+import '../analysis/journal.dart';
 import '../recording/backup.dart';
 import '../recording/markers.dart';
 import '../recording/recorder.dart';
@@ -150,6 +151,7 @@ Future<void> shareSummaryReport(BuildContext context, List<Directory> dirs) asyn
       final pdf = await buildSummaryReport(
         items: items,
         hrv: await HrvHistory.load(root.parent),
+        journal: await Journal.load(root.parent),
         person: ReportPerson(name: s.name, age: s.age, sex: s.sex),
         fontData: await loadReportFonts(),
       );
