@@ -30,7 +30,7 @@ Użytek własny – nie jest to wyrób medyczny (licencja flutter_blue_plus: `Li
   dziennik AF w Trendach (`lib/ui/af_diary_card.dart`, otwiera zapis na napadzie), ostrzeżenie o słabym kontakcie
   (`LiveAnalyzer.contactWarning`: czytelność < 60% przez ≥ 1 min; powiadomienie ciche, co ≥ 30 min),
   stan optymalizacji baterii w Ustawieniach.
-- v1.9.0: automatyczny zapis (rejestrator pętlowy, `AppController._startAuto`: bufor 3 min EKG/RR/ACC gdy nic nie
+- v1.15.0 (gałąź main-5zheht, scalona z main 1.14.0): automatyczny zapis (rejestrator pętlowy, `AppController._startAuto`: bufor 3 min EKG/RR/ACC gdy nic nie
   nagrywa; start przy AF / zdarzeniu wysokiej wagi, koniec 2 min po ustąpieniu, min. 3 min, przerwa 10 min;
   `Recorder.start(startedAt:)`), tryb czuwania (EKG wyłączone, okna 32 RR opaski `deviceRrWindowAf`, 2 okna AF →
   EKG + zapis; usługa pierwszoplanowa), skróty przy ikonie (`quick_actions`) i kafelek Androida
@@ -38,14 +38,15 @@ Użytek własny – nie jest to wyrób medyczny (licencja flutter_blue_plus: `Li
   Dziennik (`lib/analysis/journal.dart`, `lib/ui/journal_screen.dart`, `journal.json` w kopii): czynniki dnia,
   leki z grupą (IC/III/…), wpływ czynnika (24 h po nim, ≥ 2 dni i 10 h), lek w czasie napadu → minuty do końca,
   QRS vs własna norma (+25% przy IC), QTc ≥ 480/500; sen z akcelerometru (`sleepStats`: najdłuższy nocny spokój
-  ≥ 2 h, bloki 5 min < 12 mg), trend S/h vs norma 30 dni (`sv_trend.dart`), eksport do Health Connect / Zdrowia
-  (`lib/export/health_export.dart`, pakiet `health`, MainActivity = FlutterFragmentActivity, minSdk 26; na iOS
-  HealthKit wymaga uprawnienia w podpisie – przy sideloadzie może nie działać).
+  ≥ 2 h, bloki 5 min < 12 mg), trend S/h vs norma 30 dni (`sv_trend.dart`). Health Connect – implementacja z main
+  (`lib/health/health_connect.dart`). Uwaga: rozwój szedł równolegle na main (1.9–1.14: Koofr, af_personal,
+  af_triggers, widżet) i main-5zheht – przed pracą sprawdzić obie gałęzie i scalić.
 - Wygląd: `lib/ui/theme/app_theme.dart` – motyw (granat/morski, czerwień EKG), `AppColors` (kolory semantyczne:
   N/S/V/Q, AF, ok/ostrzeżenie/alarm, papier EKG) i wspólne komponenty (`MetricTile`, `MetricGrid`, `StatusPill`,
   `SectionLabel`). Nie wpisywać kolorów na sztywno w ekranach. Nawigacja dolna: Monitor / Zapisy / Trendy / Dziennik / Ustawienia.
 - Zrzuty ekranów bez telefonu: `SCREENSHOTS=<katalog> flutter test test/screenshots_test.dart` (Roboto + ikony
-  Material, syntetyczne EKG; bez zmiennej test pominięty). Ikony aplikacji (Android legacy/adaptacyjna/
+  Material, syntetyczne EKG; bez zmiennej test pominięty). W CI zrzuty idą jako artefakt „zrzuty-ekranow” (też w pozostałych
+  aplikacjach Fluttera: `test/screenshots_test.dart` – każda zakładka, motyw jasny i ciemny). Ikony aplikacji (Android legacy/adaptacyjna/
   monochromatyczna, iOS, ekran startowy): `flutter test tool/icons/icon_test.dart`.
 - `tool/` – narzędzia PC: `mitbih_eval.dart`, `train_classifier.dart`, `analyze.dart`, `strips_png.dart`,
   `template_png.dart`, `pdf_demo.dart`; walidacja: `af_eval.dart` (afdb/ltafdb), `st_eval.dart` (edb),
@@ -136,6 +137,17 @@ DS2 VEB 87.0/86.2, SVEB 16.7/62.6 – odrzucona (więcej fałszywych V: N→V 37
   okna, gdzie EKG czytelne (< 25% Q/S/szum) I z załamkami P (`_pPresent` z okien EKG z głosem „P obecne”);
   okna RR opaski oznaczają AF na całej długości. `afExtend` = 0 (z nowym modelem ltafdb 691 fałszywych
   epizodów zamiast 589). Napad: 22:56:10–22:56:46 (w dzienniku „trwał już przy rozpoczęciu zapisu”).
+
+- v1.11.0: progi AF pod użytkownika (`af_personal.dart`): analiza zapisuje `af_windows.json` (okna 32 RR:
+  Dash, COSEn, mediana korelacji P); „Dopasuj teraz” w Ustawieniach zbiera okna pod `af_marks.json` ze wszystkich
+  zapisów, siatka afCosen −1.6…−0.4 × afPCorr 0.30…0.70, zrównoważona trafność; przyjmowane tylko przy ≥ 10 oknach
+  z AF i bez AF, oznaczeniach obu rodzajów i zysku ≥ 5 pkt; hamulec: okna zwykłego rytmu (≥ 5 min od oznaczeń,
+  domyślnie nie-AF) nie mogą stać się AF w > 1%. Domyślne progi bez zmian (wyniki baz bez zmian).
+
+- v1.12.0: „Co poprzedza napady” (`af_triggers.dart`, karta w Trendach): dni z obserwacją (≥ 4 h zapisu albo
+  okres prowadzenia zdarzenia AFIB w Kresce) z napadem i bez wobec czynników: sen (Rytm Snu, `czynniki-sen`),
+  posiłki (Dziennik talerza, `czynniki-posilki`), ruch (Doba, `czynniki-ruch`), poranne HRV. Pliki „czynniki-dnia” v1
+  i `kreska-z-*` pobierane przez Koofr do `<dane aplikacji>/wymiana/`. Wyróżnienie: ≥ 2× częściej, 3+ dni, 2+ napady.
 
 ## Następne kroki (otwarte)
 - Więcej zapisów H10 z potwierdzonymi/oznaczonymi napadami AF; potwierdzić epizod 22:56 z użytkownikiem.

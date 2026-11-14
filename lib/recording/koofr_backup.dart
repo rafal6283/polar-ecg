@@ -1,0 +1,213 @@
+import 'dart:convert';
+import 'dart:io';
+import 'dart:typed_data';
+
+import 'package:koofr_backup_ui/koofr_backup_ui.dart';
+
+import '../analysis/af_triggers.dart' show exchangeDir;
+import '../analysis/analyzer.dart' show analyzeInBackground;
+import '../analysis/af_episodes.dart';
+import '../analysis/hrv_session.dart';
+import '../analysis/night_minutes.dart';
+import '../settings/app_settings.dart';
+import '../export/exchange.dart' show buildAfExchange;
+import 'backup.dart' show recordingSourceFiles;
+import 'recorder.dart';
+
+/// Kopia Polar EKG na rodzinnym Koofr. Pliki źródłowe zapisów (ecg.bin itd.) są załącznikami
+/// wysyłanymi tylko raz — nowa noc to tylko nowe pliki. Analizy da się przeliczyć, więc ich nie ma.
+class PolarBackup extends BackupAdapter {
+  /// Zapis w toku (pomijany w kopii; kopia automatyczna czeka na koniec nagrywania).
+  final Directory? Function() currentRecording;
+  PolarBackup(this.currentRecording);
+
+  /// Zapis, w którym coś zmieniło się w ostatnim [within] (prawdopodobnie trwa nagrywanie).
+  static Future<Directory?> recentlyWritten(Duration within) async {
+    final root = await Recorder.recordingsRoot();
+    final now = DateTime.now();
+    for (final d in root.listSync().whereType<Directory>()) {
+      for (final f in d.listSync().whereType<File>()) {
+        if (now.difference(f.lastModifiedSync()) < within) return d;
+      }
+    }
+    return null;
+  }
+
+  @override
+  String get appId => 'polar-ekg';
+  @override
+  String get appName => 'Polar EKG';
+  @override
+  String get contentNote =>
+      'W kopii są zakończone zapisy (pliki źródłowe), profil osobisty, pomiary poranne HRV i ustawienia.';
+  @override
+  String get restoreWarning => 'Dodaje brakujące zapisy (istniejących nie nadpisuje) i przywraca ustawienia. '
+      'Profil osobisty i pomiary poranne — tylko, jeśli na tym telefonie ich nie ma.';
+  @override
+  bool get busy => currentRecording() != null;
+
+  @override
+  ExchangeAdapter get exchange => _PolarExchange();
+
+  @override
+  Future<BackupContent> export() async {
+    final recRoot = await Recorder.recordingsRoot();
+    final appDir = recRoot.parent;
+    final current = currentRecording()?.path;
+    final blobs = <BackupBlob>[];
+    for (final d in recRoot.listSync().whereType<Directory>()) {
+      if (d.path == current) continue;
+      final name = d.uri.pathSegments.where((s) => s.isNotEmpty).last;
+      for (final f in d.listSync().whereType<File>()) {
+        final fn = f.uri.pathSegments.last;
+        if (recordingSourceFiles.contains(fn)) blobs.add(BackupBlob('recordings/$name/$fn', f.readAsBytes));
+      }
+    }
+    Future<Object?> readJson(String fn) async {
+      final f = File('${appDir.path}/$fn');
+      return await f.exists() ? jsonDecode(await f.readAsString()) : null;
+    }
+
+    final data = utf8.encode(jsonEncode({
+      'format': 'polar-ekg-kopia',
+      'version': 1,
+      'settings': AppSettings.instance.toJson(),
+      'profile': await readJson('profile.json'),
+      'hrv_morning': await readJson('hrv_morning.json'),
+    }));
+    return BackupContent(data, blobs);
+  }
+
+  @override
+  Future<void> import(RestoredBackup r, void Function(String step) progress) async {
+    final j = (jsonDecode(utf8.decode(r.data)) as Map).cast<String, Object?>();
+    if (j['format'] != 'polar-ekg-kopia') throw KoofrException('To nie jest kopia Polar EKG.');
+    final recRoot = await Recorder.recordingsRoot();
+    final appDir = recRoot.parent;
+    final existing = {
+      for (final d in recRoot.listSync().whereType<Directory>()) d.uri.pathSegments.where((s) => s.isNotEmpty).last
+    };
+    // zapisy pobieramy do folderu tymczasowego i przenosimy w całości — bez połówek zapisów
+    final byRec = <String, Map<String, String>>{};
+    for (final e in r.blobs.entries) {
+      final parts = e.key.split('/');
+      if (parts.length != 3 || parts[0] != 'recordings' || parts.any((p) => p == '..' || p.isEmpty)) continue;
+      if (existing.contains(parts[1])) continue;
+      (byRec[parts[1]] ??= {})[parts[2]] = e.value;
+    }
+    var i = 0;
+    for (final rec in byRec.entries) {
+      progress('Zapisy: ${++i} z ${byRec.length}');
+      final tmp = Directory('${recRoot.path}/.$rec.przywracanie');
+      if (await tmp.exists()) await tmp.delete(recursive: true);
+      await tmp.create(recursive: true);
+      for (final f in rec.value.entries) {
+        await File('${tmp.path}/${f.key}').writeAsBytes(await r.blob(f.value), flush: true);
+      }
+      await tmp.rename('${recRoot.path}/${rec.key}');
+    }
+    for (final (key, fn) in [('profile', 'profile.json'), ('hrv_morning', 'hrv_morning.json')]) {
+      final out = File('${appDir.path}/$fn');
+      if (j[key] != null && !await out.exists()) await out.writeAsString(jsonEncode(j[key]));
+    }
+    final s = j['settings'];
+    if (s is Map) await AppSettings.instance.applyJson(s.cast<String, Object?>());
+  }
+}
+
+/// Zapisy z ostatnich 21 dni (≥ 2 h) minuta po minucie – dla Rytmu Snu, gdy opaska była połączona
+/// tylko z Polar EKG: tętno, HRV, ruch tułowia, pobudzenia dodatkowe, AF, pauzy.
+Future<List<int>> buildNightExchange() async {
+  final root = await Recorder.recordingsRoot();
+  final since = DateTime.now().subtract(const Duration(days: 21)).millisecondsSinceEpoch;
+  final recs = <Map<String, Object?>>[];
+  var reanalyzed = 0;
+  for (final d in root.listSync().whereType<Directory>()) {
+    var m = await loadMinuteSummary(d.path);
+    // zapisy przeanalizowane starszą wersją: podsumowanie minutowe powstaje przy ponownej analizie
+    if (m == null && reanalyzed < 3 && await File('${d.path}/ecg.bin').exists() &&
+        (await File('${d.path}/ecg.bin').lastModified()).millisecondsSinceEpoch >= since &&
+        await File('${d.path}/ecg.bin').length() > 130 * 3 * 3600) {
+      try {
+        reanalyzed++;
+        await analyzeInBackground(d.path, AppSettings.instance.analysis);
+        m = await loadMinuteSummary(d.path);
+      } catch (_) {}
+    }
+    final mins = m?['minutes'] as List?;
+    if (m == null || mins == null || mins.length < 120) continue;
+    if (((m['started_ms'] as num?) ?? 0) < since) continue;
+    recs.add({
+      'start': m['started_ms'],
+      'end': (mins.last as List).first,
+      'minutes': mins,
+      'pauses': m['pauses'] ?? const [],
+    });
+  }
+  recs.sort((a, b) => (a['start'] as num).compareTo(b['start'] as num));
+  return utf8.encode(jsonEncode({
+    'format': 'noc-polar',
+    'version': 1,
+    'source': 'polar-ekg',
+    'exported_at': DateTime.now().millisecondsSinceEpoch,
+    'columns': ['t', 'hr', 'rmssd', 'act', 's', 'v', 'af'],
+    'recordings': recs,
+  }));
+}
+
+/// Poranne HRV i minuty AF dzień po dniu („czynniki-dnia” v1) – do podsumowania tygodnia w Dobie.
+Future<List<int>> buildDayFactors() async {
+  final root = await Recorder.recordingsRoot();
+  final days = <String, Map<String, num>>{};
+  String iso(DateTime d) => '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+  for (final h in await HrvHistory.load(root.parent)) {
+    if (h.reliable) (days[iso(h.time)] ??= {})['hrv'] = double.parse(h.rmssd.toStringAsFixed(1));
+  }
+  for (final d in root.listSync().whereType<Directory>()) {
+    final f = File('${d.path}/summary.json');
+    if (!f.existsSync()) continue;
+    try {
+      final j = jsonDecode(await f.readAsString()) as Map<String, dynamic>;
+      for (final e in (j['af_episodes'] as List? ?? const [])) {
+        final ep = AfEpisode.fromJson(e as Map<String, dynamic>);
+        final k = iso(ep.start);
+        final m = days[k] ??= {};
+        m['af_min'] = (m['af_min'] ?? 0) + ep.duration.inSeconds / 60;
+        m['af_n'] = (m['af_n'] ?? 0) + 1;
+      }
+    } catch (_) {}
+  }
+  final keys = days.keys.toList()..sort();
+  return utf8.encode(jsonEncode({
+    'format': 'czynniki-dnia',
+    'version': 1,
+    'source': 'polar-ekg',
+    'exported_at': DateTime.now().millisecondsSinceEpoch,
+    'days': [for (final k in keys) {'date': k, ...days[k]!}],
+  }));
+}
+
+/// Epizody AF do Kreski i Doby przez Koofr (zamiast ręcznego eksportu pliku).
+class _PolarExchange extends ExchangeAdapter {
+  @override
+  String get publishes => 'Epizody migotania przedsionków (AF) dla Kreski i Doby; noce minuta po minucie (tętno, HRV, ruch) dla Rytmu Snu';
+
+  @override
+  List<(String, String)> get sources => const [
+        ('czynniki', 'Sen, posiłki, ruch i leki (Rytm Snu, Dziennik talerza, Doba, Teczka) – co poprzedza napady AF'),
+        ('kreska-z', 'Kreska (zdarzenie AFIB)'),
+      ];
+
+  @override
+  Future<Map<String, List<int>?>> export() async {
+    final (bytes, _, _, _, _) = await buildAfExchange();
+    return {'polar-ekg': bytes, 'polar-noce': await buildNightExchange(), 'czynniki-polar': await buildDayFactors()};
+  }
+
+  @override
+  Future<void> import(String name, Uint8List data) async {
+    if (name.contains('/') || name.contains('..')) return;
+    final dir = await exchangeDir((await Recorder.recordingsRoot()).parent);
+    await File('${dir.path}/$name.json').writeAsBytes(data, flush: true);
+  }
+}

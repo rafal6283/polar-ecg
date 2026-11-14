@@ -5,7 +5,10 @@ import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
-/** FlutterFragmentActivity – wymagane przez Health Connect (zgody). Akcje uruchomienia z kafelka szybkich ustawień („Sprawdź rytm”) przekazywane do Fluttera. */
+/**
+ * FlutterFragmentActivity – wymagane przez Health Connect (okno zgód).
+ * Akcje uruchomienia z kafelka szybkich ustawień („Sprawdź rytm”) przekazywane do Fluttera.
+ */
 class MainActivity : FlutterFragmentActivity() {
     private var channel: MethodChannel? = null
     private var pending: String? = null

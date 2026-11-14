@@ -87,7 +87,7 @@ class AnalysisStats {
 }
 
 class AnalysisResult {
-  static const version = 7; // 7: v1.9.0 – sen z akcelerometru; 4: v1.3.0 – nowe zdarzenia; 5: v1.7.0 – S w tachykardii zatokowej, napady AF; 6: v1.8.0 – nowy model
+  static const version = 7; // 4: v1.3.0 – nowe zdarzenia; 5: v1.7.0 – S w tachykardii, napady AF; 6: v1.8.0 – nowy model; 7: v1.15.0 – sen
 
   final Timeline timeline;
   final Int32List rPeaks;

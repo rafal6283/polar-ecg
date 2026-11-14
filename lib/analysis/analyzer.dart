@@ -6,6 +6,7 @@ import 'dart:typed_data';
 
 import 'af_episodes.dart';
 import 'analysis_result.dart';
+import 'night_minutes.dart';
 import 'beat_model.g.dart';
 import 'ecg_recording.dart';
 import 'filters.dart';
@@ -158,6 +159,9 @@ class AnalysisOutput {
   final List<Float64List> correctedFeatures;
   final List<int> correctedLabels;
 
+  /// Statystyki okien RR użytych w wykrywaniu AF – do dopasowania progów do użytkownika (af_personal.dart).
+  final List<AfWindow> afWindows;
+
   AnalysisOutput(
     this.result,
     this.filtered, [
@@ -165,7 +169,8 @@ class AnalysisOutput {
   ]) : normalTemplate = null,
        normalWideTemplate = null,
        correctedFeatures = const [],
-       correctedLabels = const [];
+       correctedLabels = const [],
+       afWindows = const [];
 
   AnalysisOutput.full(
     this.result,
@@ -175,8 +180,36 @@ class AnalysisOutput {
     this.normalWideTemplate,
     this.correctedFeatures = const [],
     this.correctedLabels = const [],
+    this.afWindows = const [],
   });
 }
+
+/// Okno 32 odstępów RR z wykrywania AF: granice (próbki), kryterium Dash, wartość COSEn i mediana korelacji
+/// okolicy P (null = za mało danych). Decyzja AF zależy od progów afCosen/afPCorr – zob. [AfWindow.isAf].
+class AfWindow {
+  final int start, end;
+  final bool dash;
+  final double cosen;
+  final double? pCorr;
+  const AfWindow(this.start, this.end, this.dash, this.cosen, this.pCorr);
+
+  /// Ta sama reguła co w _Ctx.detectAf (afVotes = 2).
+  bool isAf(double cosenThr, double pCorrThr, {int votes = 2}) {
+    final c = cosen > cosenThr;
+    final p = pCorr;
+    if (p == null) return dash && c;
+    return (dash ? 1 : 0) + (c ? 1 : 0) + (p < pCorrThr ? 1 : 0) >= votes;
+  }
+
+  List<Object?> toJson() => [start, end, dash ? 1 : 0, double.parse(cosen.toStringAsFixed(3)), pCorr == null ? null : double.parse(pCorr!.toStringAsFixed(3))];
+
+  static AfWindow? fromJson(Object? j) {
+    if (j is! List || j.length < 5) return null;
+    return AfWindow((j[0] as num).toInt(), (j[1] as num).toInt(), j[2] == 1, (j[3] as num).toDouble(), (j[4] as num?)?.toDouble());
+  }
+}
+
+const afWindowsFile = 'af_windows.json';
 
 const analysisFile = 'analysis.json';
 const summaryFile = 'summary.json';
@@ -255,6 +288,8 @@ Future<AnalysisResult> analyzeRecordingDir(String path, {AnalysisSettings settin
   await File('${dir.path}/$filteredFile').writeAsBytes(f.buffer.asUint8List(f.offsetInBytes, f.lengthInBytes));
   await File('${dir.path}/$analysisFile').writeAsString(jsonEncode(out.result.toJson()));
   await File('${dir.path}/$summaryFile').writeAsString(jsonEncode(recordingSummary(out.result, recording: _dirName(dir))));
+  await File('${dir.path}/$afWindowsFile').writeAsString(jsonEncode([for (final w in out.afWindows) w.toJson()]));
+  await File('${dir.path}/$minutesFile').writeAsString(jsonEncode(minuteSummary(out.result, rec.activity)));
 
   // Nauka profilu: wzorce z dobrych zapisów, przykłady z ręcznych poprawek.
   if (settings.usePersonal) {
@@ -416,6 +451,7 @@ AnalysisOutput analyzeEcg(
     normalWideTemplate: normals.length >= 50 ? ctx._medianBeat(ctx._spread(normals, 200), wide: true) : null,
     correctedFeatures: corrFeatures,
     correctedLabels: corrLabels,
+    afWindows: ctx.afWindows,
   );
 }
 
@@ -1058,15 +1094,21 @@ class _Ctx {
       final vals = rrs.sublist(w0, w0 + w);
       final irr = _irregularity(vals);
       if (irr == null) continue;
-      final (dash, cosen) = irr;
+      final (dash, cosenVal) = irr;
+      final cosen = cosenVal > cfg.afCosen;
       bool? pAbsent;
+      double? pMed;
       if (feats != null) {
         final pc = <double>[
           for (var k = w0; k < w0 + w; k++)
             if (feats[idx[k]] != null) feats[idx[k]]![10]
         ];
-        if (pc.length >= w ~/ 2) pAbsent = _median(pc) < cfg.afPCorr;
+        if (pc.length >= w ~/ 2) {
+          pMed = _median(pc);
+          pAbsent = pMed < cfg.afPCorr;
+        }
       }
+      afWindows.add(AfWindow(r[idx[w0] - 1], r[idx[w0 + w - 1]], dash, cosenVal, pMed));
       final votes = (dash ? 1 : 0) + (cosen ? 1 : 0) + ((pAbsent ?? false) ? 1 : 0);
       final isAf = pAbsent == null ? (dash && cosen) : votes >= cfg.afVotes;
       if (pAbsent == false) {
@@ -1121,9 +1163,13 @@ class _Ctx {
     if (cfg.afExtend > 0) _extendAf(cfg.afMinSeconds);
   }
 
-  /// Kryteria nieregularności okna odstępów RR [s]: (Dash i wsp. 2009, COSEn > afCosen); null, gdy rytm wyraźnie
+  /// Okna RR z wykrywania AF (do dopasowania progów do użytkownika).
+  final afWindows = <AfWindow>[];
+
+  /// Kryteria nieregularności okna odstępów RR [s]: (Dash i wsp. 2009, wartość COSEn); null, gdy rytm wyraźnie
   /// miarowy (nRMSSD ≤ 0.06) albo za mało odstępów po odrzuceniu skrajnych.
-  (bool, bool)? _irregularity(List<double> vals) => rrIrregularity(vals, cosenThreshold: cfg.afCosen);
+  /// (kryteria Dash, wartość COSEn) – patrz [rrIrregularity].
+  (bool, double)? _irregularity(List<double> vals) => rrIrregularity(vals);
 
   /// AF z odstępów RR samej opaski (H10 liczy je własnym detektorem, odpornym na zakłócenia EKG) – tylko tam,
   /// gdzie EKG jest zbyt zakłócone (≥ 25% nieczytelnych pobudzeń w oknie), np. przy zakładaniu opaski.
@@ -1159,7 +1205,7 @@ class _Ctx {
       final med = _median(vals);
       if (vals.where((v) => v > 1.7 * med || v < 0.5 * med).length > 1) continue;
       final irr = _irregularity(vals);
-      if (irr == null || !irr.$1 || !irr.$2) continue;
+      if (irr == null || !irr.$1 || irr.$2 <= cfg.afCosen) continue;
       // Całe okno (nie środkowa połowa jak w EKG): RR opaski używane tylko przy zakłóconym EKG, gdzie granic
       // i tak nie da się dokładnie wyznaczyć, a krótki napad nie powinien wypaść poniżej progu długości.
       final a = k0, b = k1;
@@ -1792,9 +1838,9 @@ class _Ctx {
 }
 
 
-/// Kryteria nieregularności okna odstępów RR [s]: (Dash i wsp. 2009, COSEn > [cosenThreshold]); null, gdy rytm
-/// wyraźnie miarowy (nRMSSD ≤ 0.06) albo za mało odstępów po odrzuceniu skrajnych.
-(bool, bool)? rrIrregularity(List<double> vals, {double cosenThreshold = -1.0}) {
+/// Nieregularność okna odstępów RR [s]: (kryteria Dash i wsp. 2009, wartość COSEn); null, gdy rytm wyraźnie
+/// miarowy (nRMSSD ≤ 0.06) albo za mało odstępów po odrzuceniu skrajnych.
+(bool, double)? rrIrregularity(List<double> vals) {
   const trim = 2;
   final w = vals.length;
   if (w < 20) return null;
@@ -1816,7 +1862,7 @@ class _Ctx {
   final nn = x.length;
   final mu = (2 * nn - 4) / 3, sd = sqrt((16 * nn - 29) / 90);
   final dash = nrmssd > 0.1 && tp > mu - 2 * sd && tp < mu + 2 * sd && _Ctx._shannon(x) > 0.6;
-  return (dash, _Ctx._cosen(vals) > cosenThreshold);
+  return (dash, _Ctx._cosen(vals));
 }
 
 /// Okno 32 odstępów RR samej opaski [s] wygląda na AF: bez odstępów niefizjologicznych (< 0.25 / > 2.5 s),
@@ -1827,6 +1873,6 @@ bool deviceRrWindowAf(List<double> vals, {double cosenThreshold = -1.0}) {
   final sorted = [...vals]..sort();
   final med = sorted[sorted.length ~/ 2];
   if (vals.where((v) => v > 1.7 * med || v < 0.5 * med).length > 1) return false;
-  final irr = rrIrregularity(vals, cosenThreshold: cosenThreshold);
-  return irr != null && irr.$1 && irr.$2;
+  final irr = rrIrregularity(vals);
+  return irr != null && irr.$1 && irr.$2 > cosenThreshold;
 }
