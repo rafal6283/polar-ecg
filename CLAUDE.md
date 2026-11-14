@@ -30,9 +30,20 @@ Użytek własny – nie jest to wyrób medyczny (licencja flutter_blue_plus: `Li
   dziennik AF w Trendach (`lib/ui/af_diary_card.dart`, otwiera zapis na napadzie), ostrzeżenie o słabym kontakcie
   (`LiveAnalyzer.contactWarning`: czytelność < 60% przez ≥ 1 min; powiadomienie ciche, co ≥ 30 min),
   stan optymalizacji baterii w Ustawieniach.
+- v1.9.0: automatyczny zapis (rejestrator pętlowy, `AppController._startAuto`: bufor 3 min EKG/RR/ACC gdy nic nie
+  nagrywa; start przy AF / zdarzeniu wysokiej wagi, koniec 2 min po ustąpieniu, min. 3 min, przerwa 10 min;
+  `Recorder.start(startedAt:)`), tryb czuwania (EKG wyłączone, okna 32 RR opaski `deviceRrWindowAf`, 2 okna AF →
+  EKG + zapis; usługa pierwszoplanowa), skróty przy ikonie (`quick_actions`) i kafelek Androida
+  (`RhythmTileService.kt`, kanał `polar_ekg/launch`), łączenie z ostatnią opaską (`lastDeviceId`),
+  Dziennik (`lib/analysis/journal.dart`, `lib/ui/journal_screen.dart`, `journal.json` w kopii): czynniki dnia,
+  leki z grupą (IC/III/…), wpływ czynnika (24 h po nim, ≥ 2 dni i 10 h), lek w czasie napadu → minuty do końca,
+  QRS vs własna norma (+25% przy IC), QTc ≥ 480/500; sen z akcelerometru (`sleepStats`: najdłuższy nocny spokój
+  ≥ 2 h, bloki 5 min < 12 mg), trend S/h vs norma 30 dni (`sv_trend.dart`), eksport do Health Connect / Zdrowia
+  (`lib/export/health_export.dart`, pakiet `health`, MainActivity = FlutterFragmentActivity, minSdk 26; na iOS
+  HealthKit wymaga uprawnienia w podpisie – przy sideloadzie może nie działać).
 - Wygląd: `lib/ui/theme/app_theme.dart` – motyw (granat/morski, czerwień EKG), `AppColors` (kolory semantyczne:
   N/S/V/Q, AF, ok/ostrzeżenie/alarm, papier EKG) i wspólne komponenty (`MetricTile`, `MetricGrid`, `StatusPill`,
-  `SectionLabel`). Nie wpisywać kolorów na sztywno w ekranach. Nawigacja dolna: Monitor / Zapisy / Trendy / Ustawienia.
+  `SectionLabel`). Nie wpisywać kolorów na sztywno w ekranach. Nawigacja dolna: Monitor / Zapisy / Trendy / Dziennik / Ustawienia.
 - Zrzuty ekranów bez telefonu: `SCREENSHOTS=<katalog> flutter test test/screenshots_test.dart` (Roboto + ikony
   Material, syntetyczne EKG; bez zmiennej test pominięty). Ikony aplikacji (Android legacy/adaptacyjna/
   monochromatyczna, iOS, ekran startowy): `flutter test tool/icons/icon_test.dart`.
@@ -128,6 +139,7 @@ DS2 VEB 87.0/86.2, SVEB 16.7/62.6 – odrzucona (więcej fałszywych V: N→V 37
 
 ## Następne kroki (otwarte)
 - Więcej zapisów H10 z potwierdzonymi/oznaczonymi napadami AF; potwierdzić epizod 22:56 z użytkownikiem.
+- Dane H10 użytkownika z sesji v1.6–1.8 przepadły przy wymianie kontenera – poprosić o kopię zapasową (ZIP).
 - Personalizacja AF z oznaczeń użytkownika (`af_marks.json`, potwierdzone/odrzucone napady) – gdy będzie ich
   kilka-kilkanaście: progi Dash/COSEn/afPCorr pod użytkownika; bramka szumu (DS2: bez progu szumu VEB Se 94%
   przy tej samej +P) – kalibrować tylko na H10 (`h10_compare.dart`).

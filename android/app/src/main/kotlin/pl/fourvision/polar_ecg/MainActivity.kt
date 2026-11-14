@@ -1,12 +1,12 @@
 package pl.fourvision.polar_ecg
 
 import android.content.Intent
-import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
-/** Akcje uruchomienia z kafelka szybkich ustawień („Sprawdź rytm”) przekazywane do Fluttera. */
-class MainActivity : FlutterActivity() {
+/** FlutterFragmentActivity – wymagane przez Health Connect (zgody). Akcje uruchomienia z kafelka szybkich ustawień („Sprawdź rytm”) przekazywane do Fluttera. */
+class MainActivity : FlutterFragmentActivity() {
     private var channel: MethodChannel? = null
     private var pending: String? = null
 

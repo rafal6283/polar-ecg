@@ -8,6 +8,7 @@ import '../alarms/alarm_service.dart';
 import '../analysis/analyzer.dart';
 import '../analysis/personal_profile.dart';
 import '../settings/app_settings.dart';
+import '../export/health_export.dart';
 import 'backup_actions.dart';
 import 'legend_screen.dart';
 import 'theme/app_theme.dart';
@@ -171,13 +172,29 @@ class SettingsScreen extends StatelessWidget {
                 subtitle: const Text('Dodaje brakujące zapisy (istniejących nie nadpisuje).'),
                 onTap: () => restoreBackup(context),
               ),
+              ListTile(
+                leading: const Icon(Icons.favorite_border),
+                title: Text(Platform.isIOS ? 'Wyślij do Zdrowia (Apple)' : 'Wyślij do Health Connect'),
+                subtitle: const Text('Tętno minutowe, tętno spoczynkowe, sen i poranne HRV z nowych zapisów – '
+                    'razem z danymi z innych urządzeń w systemowej aplikacji zdrowia.'),
+                onTap: () async {
+                  final messenger = ScaffoldMessenger.of(context);
+                  messenger.showSnackBar(const SnackBar(content: Text('Wysyłam…'), duration: Duration(seconds: 2)));
+                  try {
+                    final msg = await HealthExport.exportAll();
+                    messenger.showSnackBar(SnackBar(content: Text(msg)));
+                  } catch (e) {
+                    messenger.showSnackBar(SnackBar(content: Text('Eksport nie powiódł się: $e')));
+                  }
+                },
+              ),
               const _Header('Informacje'),
               ListTile(
                 title: const Text('Klasyfikator pobudzeń'),
                 subtitle: Text(beatModel == null
                     ? 'reguły (model niedostępny)'
                     : 'sieć neuronowa, uczona na ${beatModel!.meta['trainBeats']?.round()} pobudzeniach (MIT-BIH DS1 + SVDB); '
-                        'test na DS2: V – czułość 86%, trafność 91%; S – czułość 12%, trafność 59%; '
+                        'test na DS2: V – czułość 83%, trafność 95%; S – czułość 11%, trafność 70% (pojedyncze przedwczesne ~80%); '
                         'migotanie (2000 h zapisów dobowych) – czułość 92%, swoistość 93%'),
               ),
               ListTile(
