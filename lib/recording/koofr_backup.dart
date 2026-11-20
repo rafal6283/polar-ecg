@@ -187,16 +187,19 @@ Future<List<int>> buildDayFactors() async {
   }));
 }
 
+/// Źródła pobierane przez Polar EKG (przedrostki plików wymiany, patrz WYMIANA.md w Rytmie Snu).
+const polarExchangeSources = [
+  ('czynniki', 'Sen, posiłki, ruch i leki (Rytm Snu, Dziennik talerza, Doba, Teczka) – co poprzedza napady AF'),
+  ('kreska-z', 'Kreska (zdarzenie AFIB)'),
+];
+
 /// Epizody AF do Kreski i Doby przez Koofr (zamiast ręcznego eksportu pliku).
 class _PolarExchange extends ExchangeAdapter {
   @override
   String get publishes => 'Epizody migotania przedsionków (AF) dla Kreski i Doby; noce minuta po minucie (tętno, HRV, ruch) dla Rytmu Snu';
 
   @override
-  List<(String, String)> get sources => const [
-        ('czynniki', 'Sen, posiłki, ruch i leki (Rytm Snu, Dziennik talerza, Doba, Teczka) – co poprzedza napady AF'),
-        ('kreska-z', 'Kreska (zdarzenie AFIB)'),
-      ];
+  List<(String, String)> get sources => polarExchangeSources;
 
   @override
   Future<Map<String, List<int>?>> export() async {
