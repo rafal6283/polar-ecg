@@ -6,6 +6,7 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 
 import '../analysis/af_episodes.dart';
+import '../analysis/af_triggers.dart';
 import '../analysis/analysis_result.dart';
 import '../analysis/confidence.dart';
 import '../analysis/hrv_session.dart';

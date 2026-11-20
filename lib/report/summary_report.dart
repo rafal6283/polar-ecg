@@ -15,6 +15,7 @@ Future<Uint8List> buildSummaryReport({
   Journal? journal,
   ReportPerson person = const ReportPerson(),
   (Uint8List regular, Uint8List bold)? fontData,
+  FactorData otherApps = const {},
 }) async {
   final fonts = fontData != null
       ? (pw.Font.ttf(ByteData.sublistView(fontData.$1)), pw.Font.ttf(ByteData.sublistView(fontData.$2)))
@@ -305,6 +306,16 @@ Future<Uint8List> buildSummaryReport({
         for (final it in sorted)
           if (it.markers.isNotEmpty) _symptomTable(it.a, it.markers, tx, clock, date: date),
       ],
+      if (otherAppsRows(otherApps, from, to) case final rows when rows.isNotEmpty) ...[
+        section('Z innych aplikacji – dzień po dniu'),
+        _table(tx, rows, header: otherAppsHeader),
+        pw.SizedBox(height: 4),
+        pw.Text(
+            tx('Sen i oddech: Rytm Snu (oddech = przerwy w oddechu z mikrofonu, AHI = z aparatu CPAP). '
+                'Leki: Teczka (przyjęte / zaplanowane dawki). Alkohol i kawa: Dziennik talerza (liczba posiłków). '
+                'Kroki: Doba. Trening: Forma. Dane wpisywane lub mierzone przez użytkownika – orientacyjne.'),
+            style: small),
+      ],
       section('Zapisy'),
       _table(tx, [
         for (final it in sorted)
@@ -384,4 +395,35 @@ pw.Widget _dailyChart(String Function(String) tx, List<(DateTime, double, double
           child: pw.Text('${d[i].$1.day.toString().padLeft(2, '0')}.${d[i].$1.month.toString().padLeft(2, '0')}',
               style: const pw.TextStyle(fontSize: 6.5, color: _grey))),
   ]);
+}
+
+/// Kolumny tabeli „Z innych aplikacji”.
+const otherAppsHeader = ['Dzień', 'Sen', 'Ocena', 'Oddech', 'AHI CPAP', 'Leki', 'Alkohol', 'Kawa', 'Kroki', 'Trening'];
+
+/// Wiersze tabeli „Z innych aplikacji” (pliki „czynniki-dnia” pobrane przez Koofr) dla dni od [from] do [to];
+/// dni bez żadnych danych są pomijane.
+List<List<String>> otherAppsRows(FactorData f, DateTime from, DateTime to) {
+  String two(int v) => v.toString().padLeft(2, '0');
+  String n(num? v, [int d = 0]) => v == null ? '–' : v.toStringAsFixed(d).replaceAll('.', ',');
+  final out = <List<String>>[];
+  final last = DateTime(to.year, to.month, to.day);
+  for (var d = DateTime(from.year, from.month, from.day); !d.isAfter(last); d = DateTime(d.year, d.month, d.day + 1)) {
+    final k = '${d.year}-${two(d.month)}-${two(d.day)}';
+    final sleep = f[srcSleep]?[k], meals = f[srcMeals]?[k], move = f[srcMove]?[k], meds = f[srcMeds]?[k], train = f[srcTrain]?[k];
+    if (sleep == null && meals == null && move == null && meds == null && train == null) continue;
+    final sm = sleep?['sleep_min'];
+    out.add([
+      '${two(d.day)}.${two(d.month)}',
+      sm == null ? '–' : '${sm ~/ 60} h ${two((sm % 60).round())}',
+      n(sleep?['score']),
+      sleep?['apnea_idx'] == null ? '–' : '${n(sleep!['apnea_idx'], 1)}/h',
+      sleep?['cpap_ahi'] == null ? '–' : '${n(sleep!['cpap_ahi'], 1)}/h',
+      meds == null ? '–' : '${n(meds['taken'])}/${n(meds['doses'])}',
+      meals == null ? '–' : n(meals['alcohol']),
+      meals == null ? '–' : n(meals['coffee']),
+      n(move?['steps']),
+      train == null || (train['train_min'] ?? 0) == 0 ? '–' : '${n(train['train_min'])} min',
+    ]);
+  }
+  return out;
 }

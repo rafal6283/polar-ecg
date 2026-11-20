@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../analysis/af_triggers.dart';
 import '../analysis/analyzer.dart';
 import '../analysis/hrv_session.dart';
 import '../analysis/journal.dart';
@@ -154,6 +155,8 @@ Future<void> shareSummaryReport(BuildContext context, List<Directory> dirs) asyn
         journal: await Journal.load(root.parent),
         person: ReportPerson(name: s.name, age: s.age, sex: s.sex),
         fontData: await loadReportFonts(),
+        // sen, CPAP, leki, posiłki, ruch i treningi pobrane przez Koofr z moich aplikacji
+        otherApps: (await loadExchange(root.parent)).factors,
       );
       return File('${tmp.path}/raport_zbiorczy_${_stamp()}.pdf')..writeAsBytesSync(pdf);
     });
