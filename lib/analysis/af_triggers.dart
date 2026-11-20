@@ -21,7 +21,8 @@ class TriggerDef {
   const TriggerDef(this.id, this.label, this.source, this.offset, this.test);
 }
 
-const srcSleep = 'rytm-snu', srcMeals = 'dziennik-talerza', srcMove = 'doba', srcHrv = 'hrv', srcMeds = 'teczka';
+const srcSleep = 'rytm-snu', srcMeals = 'dziennik-talerza', srcMove = 'doba', srcHrv = 'hrv', srcMeds = 'teczka',
+    srcTrain = 'forma';
 
 final triggerDefs = <TriggerDef>[
   TriggerDef('short_sleep', 'Krótki sen (< 6 h)', srcSleep, 0, (r) => (r['sleep_min'] ?? 999) < 360),
@@ -41,6 +42,9 @@ final triggerDefs = <TriggerDef>[
   TriggerDef('sport', 'Trening ≥ 30 min', srcMove, 0, (r) => (r['sport_min'] ?? 0) >= 30),
   TriggerDef('sport_prev', 'Trening ≥ 30 min dzień wcześniej', srcMove, -1, (r) => (r['sport_min'] ?? 0) >= 30),
   TriggerDef('travel', 'Podróż ≥ 2 h', srcMove, 0, (r) => (r['travel_min'] ?? 0) >= 120),
+  TriggerDef('hard_workout', 'Ciężki trening (wysiłek ≥ 8/10, Forma)', srcTrain, 0, (r) => (r['rpe_max'] ?? 0) >= 8),
+  TriggerDef('late_workout', 'Trening wieczorem (po 20:00, Forma)', srcTrain, 0, (r) => (r['end_h'] ?? 0) >= 20),
+  TriggerDef('late_coffee', 'Kawa po 14:00', srcMeals, 0, (r) => (r['coffee_last_h'] ?? 0) >= 14),
   TriggerDef('hrv_low', 'HRV rano poniżej normy', srcHrv, 0, (r) => r['low'] == 1),
   TriggerDef('med_missed', 'Pominięta dawka leku', srcMeds, 0, (r) => (r['missed'] ?? 0) > 0),
   TriggerDef('med_missed_prev', 'Pominięta dawka leku dzień wcześniej', srcMeds, -1, (r) => (r['missed'] ?? 0) > 0),

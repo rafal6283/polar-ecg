@@ -34,6 +34,10 @@ void main() {
     expect(parseFactors(wymianaPrzyklady['czynniki-posilki']!)!.$1, srcMeals);
     expect(parseFactors(wymianaPrzyklady['czynniki-ruch']!)!.$1, srcMove);
     expect(parseFactors(wymianaPrzyklady['czynniki-leki']!)!.$1, srcMeds);
+    expect(parseFactors(wymianaPrzyklady['czynniki-forma']!)!.$1, srcTrain);
+    // kawa po 14:00 z pory ostatniej kawy (Dziennik talerza)
+    final meals = parseFactors(wymianaPrzyklady['czynniki-posilki']!)!.$2['2025-11-19']!;
+    expect(triggerDefs.firstWhere((d) => d.id == 'late_coffee').test(meals), isTrue);
     final t = parseKreskaTracker(wymianaPrzyklady['kreska-z-afib']!)!;
     expect(isAfTrackerName(t.name), isTrue);
     expect(t.sessions, hasLength(1));

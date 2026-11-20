@@ -189,7 +189,7 @@ Future<List<int>> buildDayFactors() async {
 
 /// Źródła pobierane przez Polar EKG (przedrostki plików wymiany, patrz WYMIANA.md w Rytmie Snu).
 const polarExchangeSources = [
-  ('czynniki', 'Sen, posiłki, ruch i leki (Rytm Snu, Dziennik talerza, Doba, Teczka) – co poprzedza napady AF'),
+  ('czynniki', 'Sen, posiłki, ruch, treningi i leki (Rytm Snu, Dziennik talerza, Doba, Forma, Teczka) – co poprzedza napady AF'),
   ('kreska-z', 'Kreska (zdarzenie AFIB)'),
 ];
 
