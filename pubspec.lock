@@ -525,7 +525,7 @@ packages:
     description:
       path: "packages/koofr_backup_ui"
       ref: HEAD
-      resolved-ref: 96ce0ad388108b22a785b3bb2766871826ab5eb5
+      resolved-ref: 91e85776275d1d0d9909ba30fbbc94180a66c143
       url: "https://github.com/rafal6283/nocny-licznik"
     source: git
     version: "1.0.0"
@@ -534,7 +534,7 @@ packages:
     description:
       path: "packages/koofr_sync"
       ref: HEAD
-      resolved-ref: 96ce0ad388108b22a785b3bb2766871826ab5eb5
+      resolved-ref: 91e85776275d1d0d9909ba30fbbc94180a66c143
       url: "https://github.com/rafal6283/nocny-licznik"
     source: git
     version: "1.0.0"
@@ -799,7 +799,7 @@ packages:
     description:
       path: "packages/rodzina_wykresy"
       ref: HEAD
-      resolved-ref: 96ce0ad388108b22a785b3bb2766871826ab5eb5
+      resolved-ref: 91e85776275d1d0d9909ba30fbbc94180a66c143
       url: "https://github.com/rafal6283/nocny-licznik"
     source: git
     version: "1.0.0"
