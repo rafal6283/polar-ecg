@@ -1,6 +1,7 @@
 import 'dart:math';
 
 import 'package:flutter/material.dart';
+import 'package:rodzina_wykresy/rodzina_wykresy.dart' show CalendarHeatmap;
 
 import '../analysis/af_episodes.dart';
 import '../recording/recorder.dart';
@@ -71,6 +72,20 @@ class _AfDiaryCardState extends State<AfDiaryCard> {
         MetricTile('Tętno w AF', d.hrInAf?.round().toString() ?? '–',
             unit: '/min', sub: d.hrMaxInAf == null ? null : 'maks. ${d.hrMaxInAf!.round()}/min', icon: Icons.favorite_border),
       ]),
+      const SizedBox(height: 12),
+      Text('Kalendarz: dni z zapisem i czas w AF', style: t.titleSmall),
+      const SizedBox(height: 6),
+      Builder(builder: (context) {
+        final all = diaryFromSummaries(widget.rows);
+        return CalendarHeatmap(
+          // dzień z zapisem bez AF = blada kratka, im dłużej w AF – tym mocniej; kropka = napad
+          values: {for (final e in all.days.entries) e.key: e.value.$2 / 60},
+          color: colors.af,
+          weeks: 18,
+          format: (v) => v <= 0 ? 'zapis bez AF' : 'w AF ${_hm(v * 60)}',
+          marker: (_, v) => v > 0,
+        );
+      }),
       if (d.episodes.isNotEmpty) ...[
         const SizedBox(height: 12),
         Text('Pora rozpoczęcia napadów', style: t.titleSmall),

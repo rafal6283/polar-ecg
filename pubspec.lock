@@ -799,7 +799,7 @@ packages:
     description:
       path: "packages/rodzina_wykresy"
       ref: HEAD
-      resolved-ref: 311fb39d481857d89e0c769f6c6de35cb2d57058
+      resolved-ref: "f1b3f77a1f1a01ba23a8f8a63a9dcfa9d5ca43cd"
       url: "https://github.com/rafal6283/nocny-licznik"
     source: git
     version: "1.0.0"
